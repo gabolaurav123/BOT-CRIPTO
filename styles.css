@@ -380,6 +380,14 @@ select {
   margin-top: 18px;
 }
 
+.bot-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(340px, 0.75fr);
+  gap: 18px;
+  margin-top: 18px;
+  align-items: stretch;
+}
+
 .panel {
   border-radius: 8px;
   padding: 16px;
@@ -562,7 +570,9 @@ select {
 }
 
 .mini-action:disabled,
-.action-button:disabled {
+.action-button:disabled,
+.ghost-button:disabled,
+.danger-button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
@@ -588,7 +598,14 @@ canvas {
   margin-top: 12px;
 }
 
+.bot-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .metric-matrix div,
+.bot-status-grid div,
 .trade-ticket {
   border: 1px solid var(--line);
   background: #fbfcfd;
@@ -602,8 +619,62 @@ canvas {
   align-content: space-between;
 }
 
+.bot-status-grid div {
+  min-height: 86px;
+  padding: 12px;
+  display: grid;
+  align-content: space-between;
+}
+
 .metric-matrix strong {
   font-size: 1.05rem;
+}
+
+.bot-status-grid strong {
+  font-size: 1.15rem;
+}
+
+.bot-status-grid span,
+.bot-status-grid small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.bot-status-grid small {
+  text-transform: none;
+  font-weight: 650;
+}
+
+.bot-decision {
+  margin-top: 12px;
+  min-height: 52px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+}
+
+.bot-decision p {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.bot-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.bot-controls button {
+  flex: 1 1 150px;
 }
 
 .trade-ticket {
@@ -733,9 +804,18 @@ canvas {
   }
 
   .main-grid,
+  .bot-grid,
   .portfolio-grid,
   .kpi-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .bot-panel {
+    grid-column: 1 / -1;
+  }
+
+  .bot-status-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .detail-panel {
@@ -794,9 +874,11 @@ canvas {
 
   .control-strip,
   .main-grid,
+  .bot-grid,
   .portfolio-grid,
   .kpi-grid,
   .metric-matrix,
+  .bot-status-grid,
   .trade-ticket {
     grid-template-columns: 1fr;
   }

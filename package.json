@@ -1,0 +1,14 @@
+{
+  "name": "bot-cripto",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Binance Spot crypto radar with a guarded paper/live trading backend.",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check app.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

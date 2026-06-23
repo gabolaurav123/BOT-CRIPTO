@@ -76,6 +76,12 @@ const state = {
   socket: null,
   notificationEnabled: false,
   liveMode: false,
+  backend: {
+    available: false,
+    loading: false,
+    status: null,
+    error: null,
+  },
   renderPending: false,
 };
 
@@ -99,6 +105,27 @@ const els = {
   bestSignalDetail: document.querySelector("#bestSignalDetail"),
   marketsCount: document.querySelector("#marketsCount"),
   deepScanCount: document.querySelector("#deepScanCount"),
+  spotUsdtValue: document.querySelector("#spotUsdtValue"),
+  spotBalanceDetail: document.querySelector("#spotBalanceDetail"),
+  botUsableValue: document.querySelector("#botUsableValue"),
+  botCapitalLimit: document.querySelector("#botCapitalLimit"),
+  botPnlValue: document.querySelector("#botPnlValue"),
+  dailyGoalText: document.querySelector("#dailyGoalText"),
+  bobRateValue: document.querySelector("#bobRateValue"),
+  bobRateDetail: document.querySelector("#bobRateDetail"),
+  backendStatus: document.querySelector("#backendStatus"),
+  botModeValue: document.querySelector("#botModeValue"),
+  botModeDetail: document.querySelector("#botModeDetail"),
+  botEnabledValue: document.querySelector("#botEnabledValue"),
+  botLastScan: document.querySelector("#botLastScan"),
+  dailyLossLimit: document.querySelector("#dailyLossLimit"),
+  feeValue: document.querySelector("#feeValue"),
+  botDecision: document.querySelector("#botDecision"),
+  startBotBtn: document.querySelector("#startBotBtn"),
+  stopBotBtn: document.querySelector("#stopBotBtn"),
+  scanBotBtn: document.querySelector("#scanBotBtn"),
+  backendRefreshBtn: document.querySelector("#backendRefreshBtn"),
+  botPositionsList: document.querySelector("#botPositionsList"),
   detailTitle: document.querySelector("#detailTitle"),
   detailSubtitle: document.querySelector("#detailSubtitle"),
   detailBadge: document.querySelector("#detailBadge"),
@@ -206,10 +233,74 @@ async function fetchJson(url, timeoutMs = 12000) {
   }
 }
 
+async function backendRequest(path, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+  try {
+    const response = await fetch(path, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+      signal: controller.signal,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) throw new Error(data.error || `${response.status} ${response.statusText}`);
+    return data;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function refreshBackendStatus() {
+  if (state.backend.loading) return;
+  state.backend.loading = true;
+  try {
+    const status = await backendRequest("/api/bot/status");
+    state.backend.available = true;
+    state.backend.status = status;
+    state.backend.error = null;
+  } catch (error) {
+    state.backend.available = false;
+    state.backend.error = error.message;
+  } finally {
+    state.backend.loading = false;
+    renderBackendStatus();
+    renderSummary();
+    if (window.lucide) window.lucide.createIcons();
+  }
+}
+
+async function callBotAction(path) {
+  setBackendButtons(false);
+  try {
+    const status = await backendRequest(path, { method: "POST", body: "{}" });
+    state.backend.available = true;
+    state.backend.status = status;
+    state.backend.error = null;
+  } catch (error) {
+    state.backend.error = error.message;
+    addAlert("Error backend", error.message, "warning");
+  } finally {
+    setBackendButtons(true);
+    renderBackendStatus();
+    renderSummary();
+  }
+}
+
+function setBackendButtons(enabled) {
+  [els.startBotBtn, els.stopBotBtn, els.scanBotBtn, els.backendRefreshBtn].forEach((button) => {
+    if (button) button.disabled = !enabled;
+  });
+}
+
 async function boot() {
   loadStorage();
   bindEvents();
   renderAll();
+  refreshBackendStatus();
+  window.setInterval(refreshBackendStatus, 15000);
   await loadMarketData();
   if (window.lucide) window.lucide.createIcons();
 }
@@ -271,6 +362,11 @@ function bindEvents() {
     saveStorage();
     renderPortfolio();
   });
+
+  els.startBotBtn.addEventListener("click", () => callBotAction("/api/bot/start"));
+  els.stopBotBtn.addEventListener("click", () => callBotAction("/api/bot/stop"));
+  els.scanBotBtn.addEventListener("click", () => callBotAction("/api/bot/scan"));
+  els.backendRefreshBtn.addEventListener("click", refreshBackendStatus);
 
   document.querySelectorAll(".rail-button").forEach((button) => {
     button.addEventListener("click", () => {
@@ -761,12 +857,18 @@ function renderAll() {
   renderMarketList();
   renderDetail();
   renderPortfolio();
+  renderBackendStatus();
   if (window.lucide) window.lucide.createIcons();
 }
 
 function renderSummary() {
   const stats = getPortfolioStats();
   const best = [...state.markets].sort((a, b) => b.score - a.score)[0];
+  const backend = state.backend.status;
+  const botAccount = backend?.account?.bot;
+  const spotUsdt = backend?.account?.spot?.USDT?.free;
+  const fx = backend?.fx;
+  const botPnl = backend?.totalBotPnlUsdt;
   els.equityValue.textContent = money.format(stats.equity);
   els.cashValue.textContent = money.format(stats.cash);
   els.goalProgress.textContent = `Meta $500: ${clamp((stats.equity / 500) * 100, 0, 999).toFixed(1)}%`;
@@ -774,6 +876,107 @@ function renderSummary() {
   els.bestSignalDetail.textContent = best ? `${best.score}/100 - ${labelSignal(best.signal)} - ${best.reason}` : "Esperando mercado";
   els.marketsCount.textContent = String(state.markets.length);
   els.deepScanCount.textContent = `${state.klines.size} con indicadores profundos`;
+  els.spotUsdtValue.textContent = Number.isFinite(spotUsdt) ? money.format(spotUsdt) : "--";
+  els.spotBalanceDetail.textContent = state.backend.available ? "Saldo libre de Spot, no Funding" : "Backend no conectado";
+  els.botUsableValue.textContent = Number.isFinite(botAccount?.availableForBotUsdt) ? money.format(botAccount.availableForBotUsdt) : "--";
+  els.botCapitalLimit.textContent = Number.isFinite(botAccount?.maxCapitalUsdt) ? `Limite configurado: ${money.format(botAccount.maxCapitalUsdt)}` : "Limite configurado: --";
+  els.botPnlValue.textContent = Number.isFinite(botPnl) ? money.format(botPnl) : "--";
+  els.botPnlValue.classList.toggle("positive", botPnl > 0);
+  els.botPnlValue.classList.toggle("negative", botPnl < 0);
+  els.dailyGoalText.textContent = Number.isFinite(botAccount?.dailyProfitTargetUsdt) ? `Objetivo diario: ${money.format(botAccount.dailyProfitTargetUsdt)}` : "Objetivo diario: --";
+  els.bobRateValue.textContent = Number.isFinite(fx?.mid) ? `Bs ${fx.mid.toFixed(2)}` : "--";
+  els.bobRateDetail.textContent = fx?.source ? `${fx.source} - compra ${fx.buy?.toFixed?.(2) ?? "--"} / venta ${fx.sell?.toFixed?.(2) ?? "--"}` : "Binance P2P / fallback";
+}
+
+function renderBackendStatus() {
+  const backend = state.backend.status;
+  if (!state.backend.available || !backend) {
+    els.backendStatus.className = "status-pill status-muted";
+    els.backendStatus.innerHTML = `<span class="pulse"></span>Backend no conectado`;
+    els.botModeValue.textContent = "--";
+    els.botModeDetail.textContent = state.backend.error || "Sirve la app con npm start para operar";
+    els.botEnabledValue.textContent = "--";
+    els.botLastScan.textContent = "Sin backend";
+    els.dailyLossLimit.textContent = "--";
+    els.feeValue.textContent = "--";
+    els.botDecision.textContent = "La web esta en modo analisis/paper local. Para operar usa el backend Node en Seenode.";
+    els.botPositionsList.innerHTML = `<div class="empty-state">Backend no conectado. Las posiciones reales/paper del bot apareceran aqui.</div>`;
+    setBackendButtons(false);
+    els.backendRefreshBtn.disabled = false;
+    return;
+  }
+
+  setBackendButtons(true);
+  els.backendStatus.className = `status-pill ${backend.mode === "live" ? "status-error" : "status-demo"}`;
+  els.backendStatus.innerHTML = `<span class="pulse"></span>${backend.mode === "live" ? "LIVE" : "PAPER"} conectado`;
+  els.botModeValue.textContent = backend.mode === "live" ? "Live real" : "Paper";
+  els.botModeDetail.textContent = backend.configured ? `API ${backend.safeConfig.apiKey || "sin key"}` : "Faltan variables Binance";
+  els.botEnabledValue.textContent = backend.enabled ? "Activo" : "Pausado";
+  els.botLastScan.textContent = backend.lastScanAt ? `Ultimo ${new Date(backend.lastScanAt).toLocaleTimeString("es-BO")}` : "Sin escaneo";
+  els.dailyLossLimit.textContent = money.format(-(backend.safeConfig.dailyMaxLossUsdt || 0));
+  els.feeValue.textContent = `${((backend.safeConfig.takerFeeRateFallback || 0) * 100).toFixed(3)}%`;
+  els.botDecision.textContent = backend.lastError ? `Error: ${backend.lastError}` : backend.lastDecision || "Sin decision reciente.";
+  els.startBotBtn.disabled = backend.enabled;
+  els.stopBotBtn.disabled = !backend.enabled;
+
+  const positions = backend.positions || [];
+  els.botPositionsList.innerHTML = "";
+  if (!positions.length) {
+    els.botPositionsList.innerHTML = `<div class="empty-state">No hay posiciones abiertas del bot.</div>`;
+  } else {
+    for (const position of positions) {
+      els.botPositionsList.appendChild(renderBotPosition(position));
+    }
+  }
+}
+
+function renderBotPosition(position) {
+  const row = document.createElement("article");
+  row.className = "position-row";
+  const pnl = Number(position.unrealizedPnlUsdt || 0);
+  const pnlPct = Number(position.unrealizedPnlPct || 0);
+  row.innerHTML = `
+    <div class="position-main">
+      <div class="position-title">
+        <strong>${escapeHtml(position.baseAsset || position.symbol)} / USDT</strong>
+        <span class="signal-badge ${position.mode === "live" ? "avoid" : "watch"}">${position.mode === "live" ? "Live" : "Paper"}</span>
+        <span class="${pnl >= 0 ? "positive" : "negative"}">${money.format(pnl)} (${formatPct(pnlPct)})</span>
+      </div>
+      <div class="position-meta">
+        <span>Entrada ${formatPrice(position.entryPrice)}</span>
+        <span>Actual ${formatPrice(position.currentPrice)}</span>
+        <span>Monto ${money.format(position.amountUsdt)}</span>
+        <span>Stop ${formatPrice(position.stop)}</span>
+        <span>Target ${formatPrice(position.target)}</span>
+      </div>
+    </div>
+    <div class="position-actions"></div>
+  `;
+  const close = document.createElement("button");
+  close.className = "danger-button";
+  close.textContent = "Cerrar";
+  close.addEventListener("click", () => closeBotPosition(position.id));
+  row.querySelector(".position-actions").appendChild(close);
+  return row;
+}
+
+async function closeBotPosition(positionId) {
+  setBackendButtons(false);
+  try {
+    const status = await backendRequest("/api/bot/close", {
+      method: "POST",
+      body: JSON.stringify({ positionId }),
+    });
+    state.backend.status = status;
+    state.backend.available = true;
+    state.backend.error = null;
+  } catch (error) {
+    addAlert("Error cerrando posicion", error.message, "warning");
+  } finally {
+    setBackendButtons(true);
+    renderBackendStatus();
+    renderSummary();
+  }
 }
 
 function getVisibleMarkets() {

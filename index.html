@@ -89,6 +89,98 @@
             <strong id="marketsCount">0</strong>
             <small id="deepScanCount">0 con indicadores profundos</small>
           </article>
+          <article class="kpi">
+            <span>USDT Spot</span>
+            <strong id="spotUsdtValue">--</strong>
+            <small id="spotBalanceDetail">Backend no conectado</small>
+          </article>
+          <article class="kpi">
+            <span>Usable por bot</span>
+            <strong id="botUsableValue">--</strong>
+            <small id="botCapitalLimit">Limite configurado: --</small>
+          </article>
+          <article class="kpi">
+            <span>PnL bot hoy</span>
+            <strong id="botPnlValue">--</strong>
+            <small id="dailyGoalText">Objetivo diario: --</small>
+          </article>
+          <article class="kpi">
+            <span>USDT/BOB</span>
+            <strong id="bobRateValue">--</strong>
+            <small id="bobRateDetail">Binance P2P / fallback</small>
+          </article>
+        </section>
+
+        <section class="bot-grid" aria-label="Control del bot real">
+          <div class="panel bot-panel">
+            <div class="panel-header">
+              <div>
+                <h2>Bot Spot con limites</h2>
+                <p>Opera solo con USDT libre de Spot, respeta capital maximo, perdida diaria y comisiones.</p>
+              </div>
+              <span id="backendStatus" class="status-pill status-muted">
+                <span class="pulse"></span>
+                Backend no conectado
+              </span>
+            </div>
+
+            <div class="bot-status-grid">
+              <div>
+                <span>Modo</span>
+                <strong id="botModeValue">--</strong>
+                <small id="botModeDetail">Live requiere variable de entorno</small>
+              </div>
+              <div>
+                <span>Estado</span>
+                <strong id="botEnabledValue">--</strong>
+                <small id="botLastScan">Sin escaneo</small>
+              </div>
+              <div>
+                <span>Riesgo diario</span>
+                <strong id="dailyLossLimit">--</strong>
+                <small>Si se alcanza, el bot se pausa</small>
+              </div>
+              <div>
+                <span>Comision usada</span>
+                <strong id="feeValue">--</strong>
+                <small>Consulta Binance o usa fallback</small>
+              </div>
+            </div>
+
+            <div class="bot-decision">
+              <i data-lucide="activity"></i>
+              <p id="botDecision">El backend aun no reporta decisiones.</p>
+            </div>
+
+            <div class="bot-controls">
+              <button id="startBotBtn" class="action-button">
+                <i data-lucide="play"></i>
+                Iniciar bot
+              </button>
+              <button id="stopBotBtn" class="danger-button">
+                <i data-lucide="pause"></i>
+                Pausar bot
+              </button>
+              <button id="scanBotBtn" class="ghost-button">
+                <i data-lucide="scan-line"></i>
+                Escanear ahora
+              </button>
+              <button id="backendRefreshBtn" class="ghost-button">
+                <i data-lucide="rotate-cw"></i>
+                Refrescar cuenta
+              </button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Posiciones del bot</h2>
+                <p>Entradas abiertas por el backend, con PnL estimado neto de comisiones.</p>
+              </div>
+            </div>
+            <div id="botPositionsList" class="positions-list"></div>
+          </div>
         </section>
 
         <section class="main-grid">

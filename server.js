@@ -65,7 +65,8 @@ const CONFIG = {
   minScore: envNum("BOT_MIN_SCORE", 82),
   highRiskMinScore: envNum("BOT_HIGH_RISK_MIN_SCORE", 90),
   scanIntervalMs: Math.max(15000, envNum("BOT_SCAN_INTERVAL_MS", 60000)),
-  positionCheckIntervalMs: Math.max(5000, envNum("BOT_POSITION_CHECK_INTERVAL_MS", 10000)),
+  positionCheckIntervalMs: Math.max(3000, envNum("BOT_POSITION_CHECK_INTERVAL_MS", 10000)),
+  statusExitGuard: envBool("BOT_STATUS_EXIT_GUARD", true),
   scanUniverseLimit: Math.max(30, envNum("BOT_SCAN_UNIVERSE_LIMIT", 140)),
   minQuoteVolumeUsdt: envNum("BOT_MIN_QUOTE_VOLUME_USDT", 2500000),
   max24hChangePct: envNum("BOT_MAX_24H_CHANGE_PCT", 35),
@@ -237,6 +238,7 @@ async function routeApi(req, res, url) {
   }
 
   if (url.pathname === "/api/bot/status" && req.method === "GET") {
+    if (CONFIG.statusExitGuard && hasOpenPositions()) await runPositionGuard();
     sendJson(res, 200, await buildBotStatus());
     return;
   }
@@ -1337,6 +1339,7 @@ function safeConfig() {
     highRiskMinScore: CONFIG.highRiskMinScore,
     scanIntervalMs: CONFIG.scanIntervalMs,
     positionCheckIntervalMs: CONFIG.positionCheckIntervalMs,
+    statusExitGuard: CONFIG.statusExitGuard,
     scanUniverseLimit: CONFIG.scanUniverseLimit,
     minQuoteVolumeUsdt: CONFIG.minQuoteVolumeUsdt,
     max24hChangePct: CONFIG.max24hChangePct,

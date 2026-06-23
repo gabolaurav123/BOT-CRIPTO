@@ -30,6 +30,8 @@ BOT_ALLOW_RESCUE_TOP_UP=true
 BOT_RESCUE_TOP_UP_BUFFER_PCT=15
 BOT_MAX_RESCUE_TOP_UP_USDT=8
 BOT_RETRY_NOTIONAL_CLOSE=true
+BOT_POSITION_CHECK_INTERVAL_MS=3000
+BOT_STATUS_EXIT_GUARD=true
 BOT_UNIVERSE_MODE=dynamic
 BOT_ALLOWED_SYMBOLS=ALL
 BOT_ALLOW_HIGH_RISK=true
@@ -79,6 +81,7 @@ Si la IP cambia despues de reiniciar o redeployar Seenode, Binance puede rechaza
 - Descarta entradas cuyo minimo de Binance no cabe en `BOT_MAX_TRADE_USDT`.
 - Si una posicion queda bajo el minimo vendible, `BOT_ALLOW_RESCUE_TOP_UP=true` permite comprar un minimo extra y vender todo para volver a USDT.
 - Si Binance rechaza un cierre por `NOTIONAL`, `BOT_RETRY_NOTIONAL_CLOSE=true` intenta rescatar y vender una vez mas.
+- Revisa salidas con `BOT_POSITION_CHECK_INTERVAL_MS` y tambien antes de responder el estado del panel con `BOT_STATUS_EXIT_GUARD=true`.
 - Pausa entradas si alcanza el objetivo diario o perdida diaria.
 - Calcula PnL neto estimado con comision taker.
 - Muestra USDT/BOB usando Binance P2P y fallback `bo.dolarapi.com`.

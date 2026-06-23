@@ -57,6 +57,7 @@ const CONFIG = {
   maxOpenPositions: Math.max(1, envNum("BOT_MAX_OPEN_POSITIONS", 4)),
   dailyProfitTargetUsdt: envNum("BOT_DAILY_PROFIT_TARGET_USDT", 10),
   dailyMaxLossUsdt: envNum("BOT_DAILY_MAX_LOSS_USDT", 2.5),
+  minNotionalBufferPct: envNum("BOT_MIN_NOTIONAL_BUFFER_PCT", 12),
   minScore: envNum("BOT_MIN_SCORE", 82),
   highRiskMinScore: envNum("BOT_HIGH_RISK_MIN_SCORE", 90),
   scanIntervalMs: Math.max(15000, envNum("BOT_SCAN_INTERVAL_MS", 60000)),
@@ -516,6 +517,11 @@ function getTradeSizeForMarket(market) {
   return CONFIG.maxTradeUsdt;
 }
 
+function getRequiredNotional(symbolInfo) {
+  const minNotional = symbolInfo.minNotional || 5;
+  return minNotional * (1 + CONFIG.minNotionalBufferPct / 100);
+}
+
 function getExitConfigForMarket(market) {
   if (market.risk === "alto") {
     return {
@@ -532,9 +538,11 @@ function getExitConfigForMarket(market) {
 async function openPosition(market, availableUsdt) {
   const symbolInfo = await getSymbolInfo(market.symbol);
   const minNotional = symbolInfo.minNotional || 5;
-  const amountUsdt = Math.min(getTradeSizeForMarket(market), availableUsdt, CONFIG.maxCapitalUsdt);
-  if (amountUsdt < minNotional) {
-    botState.lastDecision = `${market.symbol} descartado: monto ${amountUsdt.toFixed(2)} menor al minimo ${minNotional}.`;
+  const requiredNotional = getRequiredNotional(symbolInfo);
+  const preferredSize = getTradeSizeForMarket(market);
+  const amountUsdt = Math.min(Math.max(preferredSize, requiredNotional), availableUsdt, CONFIG.maxCapitalUsdt);
+  if (amountUsdt < requiredNotional) {
+    botState.lastDecision = `${market.symbol} descartado: monto ${amountUsdt.toFixed(2)} menor al minimo seguro ${requiredNotional.toFixed(2)} USDT.`;
     return;
   }
 
@@ -663,6 +671,13 @@ async function placeMarketSell(symbol, quantity) {
   const account = await getAccountSummary();
   const freeBase = account.spot?.[info.baseAsset]?.free ?? 0;
   const sellQty = roundStep(Math.min(quantity, freeBase), info.stepSize);
+  const market = await getMarketForSymbol(symbol).catch(() => null);
+  const estimatedQuote = sellQty * (market?.price || 0);
+  if (estimatedQuote > 0 && estimatedQuote < info.minNotional) {
+    throw new Error(
+      `NOTIONAL minimo: ${symbol} vale aprox. ${estimatedQuote.toFixed(4)} USDT y Binance exige ${info.minNotional} USDT. Espera que suba por encima del minimo o compra mas de esa moneda para poder vender todo.`
+    );
+  }
   if (sellQty <= 0) throw new Error(`No hay ${info.baseAsset} libre para vender.`);
   const result = await binanceSignedRequest("POST", "/api/v3/order", {
     symbol,
@@ -1111,6 +1126,7 @@ function safeConfig() {
     maxOpenPositions: CONFIG.maxOpenPositions,
     dailyProfitTargetUsdt: CONFIG.dailyProfitTargetUsdt,
     dailyMaxLossUsdt: CONFIG.dailyMaxLossUsdt,
+    minNotionalBufferPct: CONFIG.minNotionalBufferPct,
     minScore: CONFIG.minScore,
     highRiskMinScore: CONFIG.highRiskMinScore,
     scanIntervalMs: CONFIG.scanIntervalMs,

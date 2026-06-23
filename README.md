@@ -22,13 +22,14 @@ BINANCE_API_KEY=
 BINANCE_API_SECRET=
 BOT_LIVE_TRADING=false
 BOT_MAX_CAPITAL_USDT=50
-BOT_MAX_TRADE_USDT=5
+BOT_MAX_TRADE_USDT=6
 BOT_DAILY_PROFIT_TARGET_USDT=10
 BOT_DAILY_MAX_LOSS_USDT=2.5
+BOT_MIN_NOTIONAL_BUFFER_PCT=12
 BOT_UNIVERSE_MODE=dynamic
 BOT_ALLOWED_SYMBOLS=ALL
 BOT_ALLOW_HIGH_RISK=true
-BOT_HIGH_RISK_MAX_TRADE_USDT=5
+BOT_HIGH_RISK_MAX_TRADE_USDT=6
 BOT_MAX_HIGH_RISK_OPEN_POSITIONS=2
 ```
 
@@ -62,6 +63,7 @@ Si la IP cambia despues de reiniciar o redeployar Seenode, Binance puede rechaza
 - No usa Funding Wallet, Futures, Margin ni retiros.
 - Limita capital con `BOT_MAX_CAPITAL_USDT`.
 - Limita tamano por operacion con `BOT_MAX_TRADE_USDT`.
+- Usa `BOT_MIN_NOTIONAL_BUFFER_PCT` para no operar pegado al minimo de Binance.
 - Pausa entradas si alcanza el objetivo diario o perdida diaria.
 - Calcula PnL neto estimado con comision taker.
 - Muestra USDT/BOB usando Binance P2P y fallback `bo.dolarapi.com`.

@@ -64,8 +64,8 @@ const CONFIG = {
   rescueTopUpBufferPct: envNum("BOT_RESCUE_TOP_UP_BUFFER_PCT", 15),
   maxRescueTopUpUsdt: envNum("BOT_MAX_RESCUE_TOP_UP_USDT", 8),
   retryNotionalClose: envBool("BOT_RETRY_NOTIONAL_CLOSE", true),
-  minScore: envNum("BOT_MIN_SCORE", 88),
-  highRiskMinScore: envNum("BOT_HIGH_RISK_MIN_SCORE", 96),
+  minScore: envNum("BOT_MIN_SCORE", 86),
+  highRiskMinScore: envNum("BOT_HIGH_RISK_MIN_SCORE", 92),
   scanIntervalMs: Math.max(15000, envNum("BOT_SCAN_INTERVAL_MS", 60000)),
   positionCheckIntervalMs: Math.max(3000, envNum("BOT_POSITION_CHECK_INTERVAL_MS", 10000)),
   statusExitGuard: envBool("BOT_STATUS_EXIT_GUARD", true),
@@ -85,14 +85,14 @@ const CONFIG = {
   stopLossPct: envNum("BOT_STOP_LOSS_PCT", 1.0),
   takeProfitPct: envNum("BOT_TAKE_PROFIT_PCT", 1.0),
   trailingStopPct: envNum("BOT_TRAILING_STOP_PCT", 0.45),
-  allowHighRisk: envBool("BOT_ALLOW_HIGH_RISK", false),
+  allowHighRisk: envBool("BOT_ALLOW_HIGH_RISK", true),
   highRiskMaxTradeUsdt: envNum("BOT_HIGH_RISK_MAX_TRADE_USDT", 6),
-  maxHighRiskOpenPositions: Math.max(0, envNum("BOT_MAX_HIGH_RISK_OPEN_POSITIONS", 0)),
-  highRiskMax24hChangePct: envNum("BOT_HIGH_RISK_MAX_24H_CHANGE_PCT", 18),
-  highRiskMaxSpreadPct: envNum("BOT_HIGH_RISK_MAX_SPREAD_PCT", 0.2),
-  highRiskMinDepthBias: envNum("BOT_HIGH_RISK_MIN_DEPTH_BIAS", 0.08),
-  highRiskRsiMin: envNum("BOT_HIGH_RISK_RSI_MIN", 48),
-  highRiskRsiMax: envNum("BOT_HIGH_RISK_RSI_MAX", 64),
+  maxHighRiskOpenPositions: Math.max(0, envNum("BOT_MAX_HIGH_RISK_OPEN_POSITIONS", 1)),
+  highRiskMax24hChangePct: envNum("BOT_HIGH_RISK_MAX_24H_CHANGE_PCT", 16),
+  highRiskMaxSpreadPct: envNum("BOT_HIGH_RISK_MAX_SPREAD_PCT", 0.16),
+  highRiskMinDepthBias: envNum("BOT_HIGH_RISK_MIN_DEPTH_BIAS", 0.12),
+  highRiskRsiMin: envNum("BOT_HIGH_RISK_RSI_MIN", 50),
+  highRiskRsiMax: envNum("BOT_HIGH_RISK_RSI_MAX", 60),
   highRiskMaxPositionLossPct: envNum("BOT_HIGH_RISK_MAX_POSITION_LOSS_PCT", 0.8),
   highRiskExitWeakScore: envNum("BOT_HIGH_RISK_EXIT_WEAK_SCORE", 72),
   highRiskStopLossPct: envNum("BOT_HIGH_RISK_STOP_LOSS_PCT", 1.2),
@@ -572,7 +572,10 @@ async function runBotScan(options = {}) {
     } else {
       let opened = false;
       let hadCandidate = false;
-      for (const candidate of scan.filter((market) => canEnterMarket(market, openPositions))) {
+      const candidates = scan
+        .filter((market) => canEnterMarket(market, openPositions))
+        .sort((left, right) => riskAdjustedEntryScore(right) - riskAdjustedEntryScore(left));
+      for (const candidate of candidates) {
         hadCandidate = true;
         opened = await openPosition(candidate, availableUsdt);
         if (opened) break;
@@ -600,7 +603,8 @@ function canEnterMarket(market, openPositions) {
   if (botState.consecutiveLosses >= CONFIG.maxConsecutiveLosses) return false;
   if (hadRecentLoss(market.symbol)) return false;
   if (getDayRangePct(market) > CONFIG.maxDayRangePct) return false;
-  if (market.projection4h < (highRisk ? 0.9 : CONFIG.minProjection4hPct)) return false;
+  if (highRisk && getDayRangePct(market) > CONFIG.maxDayRangePct * 0.9) return false;
+  if (market.projection4h < (highRisk ? 0.75 : CONFIG.minProjection4hPct)) return false;
   if (market.rsi == null || market.rsi > (highRisk ? CONFIG.highRiskRsiMax : CONFIG.rsiMax) || market.rsi < (highRisk ? CONFIG.highRiskRsiMin : CONFIG.rsiMin)) return false;
   if (market.depthBias < (highRisk ? CONFIG.highRiskMinDepthBias : CONFIG.minDepthBias)) return false;
   if (market.spreadPct != null && market.spreadPct > (highRisk ? CONFIG.highRiskMaxSpreadPct : CONFIG.maxSpreadPct)) return false;
@@ -621,6 +625,18 @@ function hadRecentLoss(symbol) {
   if (!CONFIG.cooldownAfterLossMs) return false;
   const cutoff = Date.now() - CONFIG.cooldownAfterLossMs;
   return botState.trades.some((trade) => trade.symbol === symbol && trade.pnlUsdt < 0 && trade.closedAt >= cutoff);
+}
+
+function riskAdjustedEntryScore(market) {
+  const dayRange = getDayRangePct(market);
+  const highRiskPenalty = market.risk === "alto" ? 8 : market.risk === "moderado" ? 2 : 0;
+  const spreadPenalty = market.spreadPct == null ? 2 : market.spreadPct * 40;
+  const rangePenalty = Math.max(0, dayRange - 8) * 1.5;
+  const extensionPenalty = Math.max(0, market.changePct - 10) * 0.9;
+  const depthBonus = clamp((market.depthBias || 0) * 45, -8, 10);
+  const projectionBonus = clamp((market.projection4h || 0) * 3, -8, 10);
+  const trendBonus = market.smaFast && market.smaSlow ? clamp((market.smaFast / market.smaSlow - 1) * 120, -8, 8) : 0;
+  return market.score + depthBonus + projectionBonus + trendBonus - highRiskPenalty - spreadPenalty - rangePenalty - extensionPenalty;
 }
 
 function getTradeSizeForMarket(market) {

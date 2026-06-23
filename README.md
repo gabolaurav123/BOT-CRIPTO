@@ -33,19 +33,20 @@ BOT_ALLOW_RESCUE_TOP_UP=true
 BOT_RESCUE_TOP_UP_BUFFER_PCT=15
 BOT_MAX_RESCUE_TOP_UP_USDT=8
 BOT_RETRY_NOTIONAL_CLOSE=true
-BOT_MIN_SCORE=88
+BOT_MIN_SCORE=86
+BOT_HIGH_RISK_MIN_SCORE=92
 BOT_POSITION_CHECK_INTERVAL_MS=3000
 BOT_STATUS_EXIT_GUARD=true
 BOT_UNIVERSE_MODE=dynamic
 BOT_ALLOWED_SYMBOLS=ALL
-BOT_ALLOW_HIGH_RISK=false
+BOT_ALLOW_HIGH_RISK=true
 BOT_HIGH_RISK_MAX_TRADE_USDT=6
-BOT_MAX_HIGH_RISK_OPEN_POSITIONS=0
-BOT_HIGH_RISK_MAX_24H_CHANGE_PCT=18
-BOT_HIGH_RISK_MAX_SPREAD_PCT=0.2
-BOT_HIGH_RISK_MIN_DEPTH_BIAS=0.08
-BOT_HIGH_RISK_RSI_MIN=48
-BOT_HIGH_RISK_RSI_MAX=64
+BOT_MAX_HIGH_RISK_OPEN_POSITIONS=1
+BOT_HIGH_RISK_MAX_24H_CHANGE_PCT=16
+BOT_HIGH_RISK_MAX_SPREAD_PCT=0.16
+BOT_HIGH_RISK_MIN_DEPTH_BIAS=0.12
+BOT_HIGH_RISK_RSI_MIN=50
+BOT_HIGH_RISK_RSI_MAX=60
 BOT_HIGH_RISK_MAX_POSITION_LOSS_PCT=0.8
 BOT_MIN_QUOTE_VOLUME_USDT=10000000
 BOT_MAX_24H_CHANGE_PCT=12
@@ -107,7 +108,7 @@ Si la IP cambia despues de reiniciar o redeployar Seenode, Binance puede rechaza
 - Muestra USDT/BOB usando Binance P2P y fallback `bo.dolarapi.com`.
 - En `BOT_UNIVERSE_MODE=dynamic` analiza muchas mas criptos spot USDT de Binance.
 - Si tu hosting no permite variables vacias, usa `BOT_ALLOWED_SYMBOLS=ALL`.
-- Para modo cuidadoso, deja `BOT_ALLOW_HIGH_RISK=false`.
+- El modo selectivo permite alto riesgo con `BOT_ALLOW_HIGH_RISK=true`, pero solo una posicion total y filtros mas duros de RSI, spread, libro y rango diario.
 - Las monedas volatiles se descartan si tienen spread alto, RSI estirado, demasiada subida en 24h o poca presion compradora en el libro.
 - `BOT_HIGH_RISK_MAX_POSITION_LOSS_PCT` corta posiciones volatiles antes de que sigan cayendo.
 - `BOT_POSITION_CHECK_INTERVAL_MS` revisa take-profit, stop y trailing sin esperar al escaneo completo de nuevas compras.

@@ -129,6 +129,7 @@ const els = {
   backendRefreshBtn: document.querySelector("#backendRefreshBtn"),
   botPositionsList: document.querySelector("#botPositionsList"),
   logoutBtn: document.querySelector("#logoutBtn"),
+  riskNotice: document.querySelector("#riskNotice"),
   detailTitle: document.querySelector("#detailTitle"),
   detailSubtitle: document.querySelector("#detailSubtitle"),
   detailBadge: document.querySelector("#detailBadge"),
@@ -910,6 +911,7 @@ function renderBackendStatus() {
     els.feeValue.textContent = "--";
     els.serverIpValue.textContent = "--";
     els.serverIpDetail.textContent = "Copiala en Binance API";
+    els.riskNotice.textContent = "El bot necesita el backend para operar. Sin backend, este panel queda en modo analisis local y no puede enviar ordenes reales.";
     els.botDecision.textContent = "La web esta en modo analisis/paper local. Para operar usa el backend Node en Seenode.";
     els.botPositionsList.innerHTML = `<div class="empty-state">Backend no conectado. Las posiciones reales/paper del bot apareceran aqui.</div>`;
     setBackendButtons(false);
@@ -920,6 +922,10 @@ function renderBackendStatus() {
   setBackendButtons(true);
   els.backendStatus.className = `status-pill ${backend.mode === "live" ? "status-error" : "status-demo"}`;
   els.backendStatus.innerHTML = `<span class="pulse"></span>${backend.mode === "live" ? "LIVE" : "PAPER"} conectado`;
+  els.riskNotice.textContent =
+    backend.mode === "live"
+      ? "Modo LIVE activo: el backend puede enviar ordenes reales de Spot usando solo el USDT libre permitido por los limites del bot. No garantiza ganancias."
+      : "Modo PAPER activo: el bot analiza y simula, pero no envia ordenes reales hasta configurar BOT_LIVE_TRADING=true en el servidor.";
   els.botModeValue.textContent = backend.mode === "live" ? "Live real" : "Paper";
   els.botModeDetail.textContent = backend.configured ? `API ${backend.safeConfig.apiKey || "sin key"}` : "Faltan variables Binance";
   els.botEnabledValue.textContent = backend.enabled ? "Activo" : "Pausado";

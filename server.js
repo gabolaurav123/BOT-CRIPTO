@@ -1156,6 +1156,8 @@ function publicError(error) {
 
 function parseSymbolList(value, fallback) {
   if (value == null) return [...fallback];
+  const normalized = value.trim().toUpperCase();
+  if (["ALL", "*", "DYNAMIC", "NONE"].includes(normalized)) return [];
   return value
     .split(",")
     .map((item) => item.trim().toUpperCase())

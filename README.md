@@ -26,7 +26,7 @@ BOT_MAX_TRADE_USDT=5
 BOT_DAILY_PROFIT_TARGET_USDT=10
 BOT_DAILY_MAX_LOSS_USDT=2.5
 BOT_UNIVERSE_MODE=dynamic
-BOT_ALLOWED_SYMBOLS=
+BOT_ALLOWED_SYMBOLS=ALL
 BOT_ALLOW_HIGH_RISK=true
 BOT_HIGH_RISK_MAX_TRADE_USDT=5
 BOT_MAX_HIGH_RISK_OPEN_POSITIONS=2
@@ -66,6 +66,7 @@ Si la IP cambia despues de reiniciar o redeployar Seenode, Binance puede rechaza
 - Calcula PnL neto estimado con comision taker.
 - Muestra USDT/BOB usando Binance P2P y fallback `bo.dolarapi.com`.
 - En `BOT_UNIVERSE_MODE=dynamic` analiza muchas mas criptos spot USDT de Binance.
+- Si tu hosting no permite variables vacias, usa `BOT_ALLOWED_SYMBOLS=ALL`.
 - Las entradas de alto riesgo usan `BOT_HIGH_RISK_MAX_TRADE_USDT` y filtros mas estrictos.
 
 ## Seguridad

@@ -41,6 +41,7 @@ BOT_HIGH_RISK_RSI_MIN=48
 BOT_HIGH_RISK_RSI_MAX=64
 BOT_HIGH_RISK_MAX_POSITION_LOSS_PCT=0.8
 BOT_MAX_POSITION_LOSS_PCT=1.4
+BOT_POSITION_CHECK_INTERVAL_MS=10000
 ```
 
 ## Deploy en Seenode
@@ -83,6 +84,7 @@ Si la IP cambia despues de reiniciar o redeployar Seenode, Binance puede rechaza
 - Las entradas de alto riesgo usan `BOT_HIGH_RISK_MAX_TRADE_USDT` y filtros mas estrictos.
 - Las monedas volatiles se descartan si tienen spread alto, RSI estirado, demasiada subida en 24h o poca presion compradora en el libro.
 - `BOT_HIGH_RISK_MAX_POSITION_LOSS_PCT` corta posiciones volatiles antes de que sigan cayendo.
+- `BOT_POSITION_CHECK_INTERVAL_MS` revisa take-profit, stop y trailing sin esperar al escaneo completo de nuevas compras.
 
 ## Seguridad
 

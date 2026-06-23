@@ -931,7 +931,11 @@ function renderBackendStatus() {
     ? `API ${backend.safeConfig.apiKey || "sin key"} - ${backend.safeConfig.universeMode || "conservative"}`
     : "Faltan variables Binance";
   els.botEnabledValue.textContent = backend.enabled ? "Activo" : "Pausado";
-  els.botLastScan.textContent = backend.lastScanAt ? `Ultimo ${new Date(backend.lastScanAt).toLocaleTimeString("es-BO")}` : "Sin escaneo";
+  els.botLastScan.textContent = backend.lastPositionCheckAt
+    ? `Ventas ${new Date(backend.lastPositionCheckAt).toLocaleTimeString("es-BO")}`
+    : backend.lastScanAt
+      ? `Escaneo ${new Date(backend.lastScanAt).toLocaleTimeString("es-BO")}`
+      : "Sin escaneo";
   els.dailyLossLimit.textContent = money.format(-(backend.safeConfig.dailyMaxLossUsdt || 0));
   els.feeValue.textContent = `${((backend.safeConfig.takerFeeRateFallback || 0) * 100).toFixed(3)}%`;
   els.serverIpValue.textContent = backend.serverIp?.ip || "--";

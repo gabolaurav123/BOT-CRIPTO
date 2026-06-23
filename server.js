@@ -64,6 +64,7 @@ const CONFIG = {
   minScore: envNum("BOT_MIN_SCORE", 82),
   highRiskMinScore: envNum("BOT_HIGH_RISK_MIN_SCORE", 90),
   scanIntervalMs: Math.max(15000, envNum("BOT_SCAN_INTERVAL_MS", 60000)),
+  positionCheckIntervalMs: Math.max(5000, envNum("BOT_POSITION_CHECK_INTERVAL_MS", 10000)),
   scanUniverseLimit: Math.max(30, envNum("BOT_SCAN_UNIVERSE_LIMIT", 140)),
   minQuoteVolumeUsdt: envNum("BOT_MIN_QUOTE_VOLUME_USDT", 2500000),
   max24hChangePct: envNum("BOT_MAX_24H_CHANGE_PCT", 35),
@@ -123,7 +124,9 @@ const marketCache = {
 
 const botState = loadState();
 let botTimer = null;
+let positionTimer = null;
 let scanInProgress = false;
+let positionGuardInProgress = false;
 
 if (CONFIG.autoStart) {
   botState.enabled = true;
@@ -132,6 +135,7 @@ if (CONFIG.autoStart) {
 }
 
 scheduleBotLoop();
+schedulePositionGuard();
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -242,6 +246,7 @@ async function routeApi(req, res, url) {
     addBotAlert("Bot iniciado", CONFIG.liveTrading ? "Modo live habilitado por variables de entorno." : "Modo paper, no ejecuta ordenes reales.");
     saveState();
     scheduleBotLoop(true);
+    schedulePositionGuard(true);
     sendJson(res, 200, await buildBotStatus());
     return;
   }
@@ -251,6 +256,7 @@ async function routeApi(req, res, url) {
     addBotAlert("Bot pausado", "No abrira posiciones nuevas hasta que lo vuelvas a iniciar.");
     saveState();
     scheduleBotLoop();
+    schedulePositionGuard();
     sendJson(res, 200, await buildBotStatus());
     return;
   }
@@ -419,6 +425,7 @@ function createDefaultState() {
     trades: [],
     alerts: [],
     lastScanAt: null,
+    lastPositionCheckAt: null,
     lastDecision: "Sin escaneo todavia.",
     lastError: null,
   };
@@ -455,6 +462,37 @@ function scheduleBotLoop(runNow = false) {
     await runBotScan().catch((error) => console.error(error));
     scheduleBotLoop();
   }, CONFIG.scanIntervalMs);
+}
+
+function schedulePositionGuard(runNow = false) {
+  if (positionTimer) clearTimeout(positionTimer);
+  if (!botState.enabled) return;
+  if (runNow) runPositionGuard().catch((error) => console.error(error));
+  positionTimer = setTimeout(async () => {
+    await runPositionGuard().catch((error) => console.error(error));
+    schedulePositionGuard();
+  }, CONFIG.positionCheckIntervalMs);
+}
+
+async function runPositionGuard() {
+  if (!botState.enabled || positionGuardInProgress) return;
+  const openPositions = botState.positions.filter((item) => item.status === "open");
+  if (!openPositions.length) return;
+
+  positionGuardInProgress = true;
+  resetDailyIfNeeded();
+  try {
+    await manageOpenPositions(new Map());
+    botState.lastPositionCheckAt = Date.now();
+    botState.lastError = null;
+    saveState();
+  } catch (error) {
+    botState.lastError = publicError(error);
+    addBotAlert("Error revisando posiciones", botState.lastError);
+    saveState();
+  } finally {
+    positionGuardInProgress = false;
+  }
 }
 
 async function runBotScan(options = {}) {
@@ -993,6 +1031,7 @@ async function buildBotStatus() {
     trades: botState.trades.slice(0, 30),
     alerts: botState.alerts.slice(0, 30),
     lastScanAt: botState.lastScanAt,
+    lastPositionCheckAt: botState.lastPositionCheckAt,
     lastDecision: botState.lastDecision,
     lastError: botState.lastError,
   };
@@ -1201,6 +1240,7 @@ function safeConfig() {
     maxRescueTopUpUsdt: CONFIG.maxRescueTopUpUsdt,
     highRiskMinScore: CONFIG.highRiskMinScore,
     scanIntervalMs: CONFIG.scanIntervalMs,
+    positionCheckIntervalMs: CONFIG.positionCheckIntervalMs,
     scanUniverseLimit: CONFIG.scanUniverseLimit,
     minQuoteVolumeUsdt: CONFIG.minQuoteVolumeUsdt,
     max24hChangePct: CONFIG.max24hChangePct,

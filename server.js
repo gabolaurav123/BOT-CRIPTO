@@ -438,6 +438,10 @@ function saveState() {
   writeFileSync(STATE_FILE, JSON.stringify(botState, null, 2));
 }
 
+function hasOpenPositions() {
+  return botState.positions.some((item) => item.status === "open");
+}
+
 function resetDailyIfNeeded() {
   const key = dayKey();
   if (botState.dayKey === key) return;
@@ -468,7 +472,7 @@ function scheduleBotLoop(runNow = false) {
 
 function schedulePositionGuard(runNow = false) {
   if (positionTimer) clearTimeout(positionTimer);
-  if (!botState.enabled) return;
+  if (!botState.enabled && !hasOpenPositions()) return;
   if (runNow) runPositionGuard().catch((error) => console.error(error));
   positionTimer = setTimeout(async () => {
     await runPositionGuard().catch((error) => console.error(error));
@@ -477,7 +481,7 @@ function schedulePositionGuard(runNow = false) {
 }
 
 async function runPositionGuard() {
-  if (!botState.enabled || positionGuardInProgress) return;
+  if (positionGuardInProgress) return;
   const openPositions = botState.positions.filter((item) => item.status === "open");
   if (!openPositions.length) return;
 
@@ -658,7 +662,11 @@ async function manageOpenPositions(marketsBySymbol) {
     else if ((market.projection4h ?? 0) < -0.2 && market.depthBias < -0.08 && pnl.netUsdt <= 0) reason = "reversion-bajista";
     else if (botState.dailyRealizedPnl + pnl.netUsdt <= -Math.abs(CONFIG.dailyMaxLossUsdt)) reason = "proteccion-perdida-diaria";
 
-    if (reason) await closePosition(position, reason, market.price);
+    if (reason) {
+      await closePosition(position, reason, market.price).catch(() => {
+        // closePosition stores the public error on the position; keep checking the rest.
+      });
+    }
   }
 }
 

@@ -920,6 +920,7 @@ function renderBackendStatus() {
   }
 
   setBackendButtons(true);
+  const openBackendPositions = backend.positions || [];
   els.backendStatus.className = `status-pill ${backend.mode === "live" ? "status-error" : "status-demo"}`;
   els.backendStatus.innerHTML = `<span class="pulse"></span>${backend.mode === "live" ? "LIVE" : "PAPER"} conectado`;
   els.riskNotice.textContent =
@@ -930,7 +931,7 @@ function renderBackendStatus() {
   els.botModeDetail.textContent = backend.configured
     ? `API ${backend.safeConfig.apiKey || "sin key"} - ${backend.safeConfig.universeMode || "conservative"}`
     : "Faltan variables Binance";
-  els.botEnabledValue.textContent = backend.enabled ? "Activo" : "Pausado";
+  els.botEnabledValue.textContent = backend.enabled ? "Activo" : openBackendPositions.length ? "Pausado, vigila salidas" : "Pausado";
   els.botLastScan.textContent = backend.lastPositionCheckAt
     ? `Ventas ${new Date(backend.lastPositionCheckAt).toLocaleTimeString("es-BO")}`
     : backend.lastScanAt
@@ -944,7 +945,7 @@ function renderBackendStatus() {
   els.startBotBtn.disabled = backend.enabled;
   els.stopBotBtn.disabled = !backend.enabled;
 
-  const positions = backend.positions || [];
+  const positions = openBackendPositions;
   els.botPositionsList.innerHTML = "";
   if (!positions.length) {
     els.botPositionsList.innerHTML = `<div class="empty-state">No hay posiciones abiertas del bot.</div>`;

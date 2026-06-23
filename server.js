@@ -64,21 +64,21 @@ const CONFIG = {
   rescueTopUpBufferPct: envNum("BOT_RESCUE_TOP_UP_BUFFER_PCT", 15),
   maxRescueTopUpUsdt: envNum("BOT_MAX_RESCUE_TOP_UP_USDT", 8),
   retryNotionalClose: envBool("BOT_RETRY_NOTIONAL_CLOSE", true),
-  minScore: envNum("BOT_MIN_SCORE", 86),
-  highRiskMinScore: envNum("BOT_HIGH_RISK_MIN_SCORE", 92),
+  minScore: envNum("BOT_MIN_SCORE", 82),
+  highRiskMinScore: envNum("BOT_HIGH_RISK_MIN_SCORE", 88),
   scanIntervalMs: Math.max(15000, envNum("BOT_SCAN_INTERVAL_MS", 60000)),
   positionCheckIntervalMs: Math.max(3000, envNum("BOT_POSITION_CHECK_INTERVAL_MS", 10000)),
   statusExitGuard: envBool("BOT_STATUS_EXIT_GUARD", true),
   scanUniverseLimit: Math.max(30, envNum("BOT_SCAN_UNIVERSE_LIMIT", 140)),
-  minQuoteVolumeUsdt: envNum("BOT_MIN_QUOTE_VOLUME_USDT", 10000000),
-  max24hChangePct: envNum("BOT_MAX_24H_CHANGE_PCT", 12),
-  maxDayRangePct: envNum("BOT_MAX_DAY_RANGE_PCT", 12),
-  maxSpreadPct: envNum("BOT_MAX_SPREAD_PCT", 0.18),
-  minDepthBias: envNum("BOT_MIN_DEPTH_BIAS", 0.04),
-  minProjection4hPct: envNum("BOT_MIN_PROJECTION_4H_PCT", 0.6),
-  rsiMin: envNum("BOT_RSI_MIN", 50),
-  rsiMax: envNum("BOT_RSI_MAX", 62),
-  minTrendBiasPct: envNum("BOT_MIN_TREND_BIAS_PCT", 0.05),
+  minQuoteVolumeUsdt: envNum("BOT_MIN_QUOTE_VOLUME_USDT", 3000000),
+  max24hChangePct: envNum("BOT_MAX_24H_CHANGE_PCT", 20),
+  maxDayRangePct: envNum("BOT_MAX_DAY_RANGE_PCT", 20),
+  maxSpreadPct: envNum("BOT_MAX_SPREAD_PCT", 0.25),
+  minDepthBias: envNum("BOT_MIN_DEPTH_BIAS", 0),
+  minProjection4hPct: envNum("BOT_MIN_PROJECTION_4H_PCT", 0.2),
+  rsiMin: envNum("BOT_RSI_MIN", 44),
+  rsiMax: envNum("BOT_RSI_MAX", 70),
+  minTrendBiasPct: envNum("BOT_MIN_TREND_BIAS_PCT", 0),
   maxPositionLossPct: envNum("BOT_MAX_POSITION_LOSS_PCT", 0.8),
   exitWeakScore: envNum("BOT_EXIT_WEAK_SCORE", 70),
   takerFeeRate: envNum("BOT_TAKER_FEE_RATE", 0.001),
@@ -88,11 +88,11 @@ const CONFIG = {
   allowHighRisk: envBool("BOT_ALLOW_HIGH_RISK", true),
   highRiskMaxTradeUsdt: envNum("BOT_HIGH_RISK_MAX_TRADE_USDT", 6),
   maxHighRiskOpenPositions: Math.max(0, envNum("BOT_MAX_HIGH_RISK_OPEN_POSITIONS", 1)),
-  highRiskMax24hChangePct: envNum("BOT_HIGH_RISK_MAX_24H_CHANGE_PCT", 16),
-  highRiskMaxSpreadPct: envNum("BOT_HIGH_RISK_MAX_SPREAD_PCT", 0.16),
-  highRiskMinDepthBias: envNum("BOT_HIGH_RISK_MIN_DEPTH_BIAS", 0.12),
-  highRiskRsiMin: envNum("BOT_HIGH_RISK_RSI_MIN", 50),
-  highRiskRsiMax: envNum("BOT_HIGH_RISK_RSI_MAX", 60),
+  highRiskMax24hChangePct: envNum("BOT_HIGH_RISK_MAX_24H_CHANGE_PCT", 28),
+  highRiskMaxSpreadPct: envNum("BOT_HIGH_RISK_MAX_SPREAD_PCT", 0.25),
+  highRiskMinDepthBias: envNum("BOT_HIGH_RISK_MIN_DEPTH_BIAS", 0.03),
+  highRiskRsiMin: envNum("BOT_HIGH_RISK_RSI_MIN", 46),
+  highRiskRsiMax: envNum("BOT_HIGH_RISK_RSI_MAX", 68),
   highRiskMaxPositionLossPct: envNum("BOT_HIGH_RISK_MAX_POSITION_LOSS_PCT", 0.8),
   highRiskExitWeakScore: envNum("BOT_HIGH_RISK_EXIT_WEAK_SCORE", 72),
   highRiskStopLossPct: envNum("BOT_HIGH_RISK_STOP_LOSS_PCT", 1.2),
@@ -580,7 +580,14 @@ async function runBotScan(options = {}) {
         opened = await openPosition(candidate, availableUsdt);
         if (opened) break;
       }
-      if (!opened && !hadCandidate) botState.lastDecision = "No hay entrada con ventaja suficiente segun filtros actuales.";
+      if (!opened && !hadCandidate) {
+        const closest = scan
+          .filter((market) => !openPositions.some((position) => position.symbol === market.symbol))
+          .sort((left, right) => riskAdjustedEntryScore(right) - riskAdjustedEntryScore(left))[0];
+        botState.lastDecision = closest
+          ? `Sin entrada aun. Mejor candidata cercana: ${closest.symbol} score ${closest.score}, riesgo ${closest.risk}, ${closest.reason}.`
+          : "No hay entrada con ventaja suficiente segun filtros actuales.";
+      }
     }
 
     botState.lastScanAt = Date.now();
@@ -603,8 +610,7 @@ function canEnterMarket(market, openPositions) {
   if (botState.consecutiveLosses >= CONFIG.maxConsecutiveLosses) return false;
   if (hadRecentLoss(market.symbol)) return false;
   if (getDayRangePct(market) > CONFIG.maxDayRangePct) return false;
-  if (highRisk && getDayRangePct(market) > CONFIG.maxDayRangePct * 0.9) return false;
-  if (market.projection4h < (highRisk ? 0.75 : CONFIG.minProjection4hPct)) return false;
+  if (market.projection4h < (highRisk ? 0.35 : CONFIG.minProjection4hPct)) return false;
   if (market.rsi == null || market.rsi > (highRisk ? CONFIG.highRiskRsiMax : CONFIG.rsiMax) || market.rsi < (highRisk ? CONFIG.highRiskRsiMin : CONFIG.rsiMin)) return false;
   if (market.depthBias < (highRisk ? CONFIG.highRiskMinDepthBias : CONFIG.minDepthBias)) return false;
   if (market.spreadPct != null && market.spreadPct > (highRisk ? CONFIG.highRiskMaxSpreadPct : CONFIG.maxSpreadPct)) return false;

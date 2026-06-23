@@ -54,32 +54,40 @@ const CONFIG = {
   autoStart: envBool("BOT_AUTO_START", false),
   maxCapitalUsdt: envNum("BOT_MAX_CAPITAL_USDT", 50),
   maxTradeUsdt: envNum("BOT_MAX_TRADE_USDT", 6),
-  maxOpenPositions: Math.max(1, envNum("BOT_MAX_OPEN_POSITIONS", 4)),
-  dailyProfitTargetUsdt: envNum("BOT_DAILY_PROFIT_TARGET_USDT", 10),
+  maxOpenPositions: Math.max(1, envNum("BOT_MAX_OPEN_POSITIONS", 1)),
+  dailyProfitTargetUsdt: envNum("BOT_DAILY_PROFIT_TARGET_USDT", 2),
   dailyMaxLossUsdt: envNum("BOT_DAILY_MAX_LOSS_USDT", 1),
+  maxConsecutiveLosses: Math.max(1, envNum("BOT_MAX_CONSECUTIVE_LOSSES", 2)),
+  cooldownAfterLossMs: Math.max(0, envNum("BOT_COOLDOWN_AFTER_LOSS_MS", 4 * 60 * 60 * 1000)),
   minNotionalBufferPct: envNum("BOT_MIN_NOTIONAL_BUFFER_PCT", 12),
   allowRescueTopUp: envBool("BOT_ALLOW_RESCUE_TOP_UP", true),
   rescueTopUpBufferPct: envNum("BOT_RESCUE_TOP_UP_BUFFER_PCT", 15),
   maxRescueTopUpUsdt: envNum("BOT_MAX_RESCUE_TOP_UP_USDT", 8),
   retryNotionalClose: envBool("BOT_RETRY_NOTIONAL_CLOSE", true),
-  minScore: envNum("BOT_MIN_SCORE", 82),
-  highRiskMinScore: envNum("BOT_HIGH_RISK_MIN_SCORE", 90),
+  minScore: envNum("BOT_MIN_SCORE", 88),
+  highRiskMinScore: envNum("BOT_HIGH_RISK_MIN_SCORE", 96),
   scanIntervalMs: Math.max(15000, envNum("BOT_SCAN_INTERVAL_MS", 60000)),
   positionCheckIntervalMs: Math.max(3000, envNum("BOT_POSITION_CHECK_INTERVAL_MS", 10000)),
   statusExitGuard: envBool("BOT_STATUS_EXIT_GUARD", true),
   scanUniverseLimit: Math.max(30, envNum("BOT_SCAN_UNIVERSE_LIMIT", 140)),
-  minQuoteVolumeUsdt: envNum("BOT_MIN_QUOTE_VOLUME_USDT", 2500000),
-  max24hChangePct: envNum("BOT_MAX_24H_CHANGE_PCT", 35),
-  maxSpreadPct: envNum("BOT_MAX_SPREAD_PCT", 0.35),
-  maxPositionLossPct: envNum("BOT_MAX_POSITION_LOSS_PCT", 1.4),
-  exitWeakScore: envNum("BOT_EXIT_WEAK_SCORE", 62),
+  minQuoteVolumeUsdt: envNum("BOT_MIN_QUOTE_VOLUME_USDT", 10000000),
+  max24hChangePct: envNum("BOT_MAX_24H_CHANGE_PCT", 12),
+  maxDayRangePct: envNum("BOT_MAX_DAY_RANGE_PCT", 12),
+  maxSpreadPct: envNum("BOT_MAX_SPREAD_PCT", 0.18),
+  minDepthBias: envNum("BOT_MIN_DEPTH_BIAS", 0.04),
+  minProjection4hPct: envNum("BOT_MIN_PROJECTION_4H_PCT", 0.6),
+  rsiMin: envNum("BOT_RSI_MIN", 50),
+  rsiMax: envNum("BOT_RSI_MAX", 62),
+  minTrendBiasPct: envNum("BOT_MIN_TREND_BIAS_PCT", 0.05),
+  maxPositionLossPct: envNum("BOT_MAX_POSITION_LOSS_PCT", 0.8),
+  exitWeakScore: envNum("BOT_EXIT_WEAK_SCORE", 70),
   takerFeeRate: envNum("BOT_TAKER_FEE_RATE", 0.001),
-  stopLossPct: envNum("BOT_STOP_LOSS_PCT", 1.8),
-  takeProfitPct: envNum("BOT_TAKE_PROFIT_PCT", 1.2),
-  trailingStopPct: envNum("BOT_TRAILING_STOP_PCT", 0.7),
+  stopLossPct: envNum("BOT_STOP_LOSS_PCT", 1.0),
+  takeProfitPct: envNum("BOT_TAKE_PROFIT_PCT", 1.0),
+  trailingStopPct: envNum("BOT_TRAILING_STOP_PCT", 0.45),
   allowHighRisk: envBool("BOT_ALLOW_HIGH_RISK", false),
   highRiskMaxTradeUsdt: envNum("BOT_HIGH_RISK_MAX_TRADE_USDT", 6),
-  maxHighRiskOpenPositions: Math.max(0, envNum("BOT_MAX_HIGH_RISK_OPEN_POSITIONS", 1)),
+  maxHighRiskOpenPositions: Math.max(0, envNum("BOT_MAX_HIGH_RISK_OPEN_POSITIONS", 0)),
   highRiskMax24hChangePct: envNum("BOT_HIGH_RISK_MAX_24H_CHANGE_PCT", 18),
   highRiskMaxSpreadPct: envNum("BOT_HIGH_RISK_MAX_SPREAD_PCT", 0.2),
   highRiskMinDepthBias: envNum("BOT_HIGH_RISK_MIN_DEPTH_BIAS", 0.08),
@@ -441,6 +449,7 @@ function createDefaultState() {
     startedAt: null,
     dayKey: dayKey(),
     dailyRealizedPnl: 0,
+    consecutiveLosses: 0,
     positions: [],
     trades: [],
     alerts: [],
@@ -469,6 +478,7 @@ function resetDailyIfNeeded() {
 function resetTradingDay(message) {
   botState.dayKey = dayKey();
   botState.dailyRealizedPnl = 0;
+  botState.consecutiveLosses = 0;
   botState.lastError = null;
   botState.lastDecision = message;
   addBotAlert("Dia operativo reiniciado", message);
@@ -551,6 +561,10 @@ async function runBotScan(options = {}) {
       botState.enabled = false;
       botState.lastDecision = `Perdida diaria maxima alcanzada: ${botState.dailyRealizedPnl.toFixed(2)} USDT. Bot pausado.`;
       addBotAlert("Limite de perdida diaria", botState.lastDecision);
+    } else if (botState.consecutiveLosses >= CONFIG.maxConsecutiveLosses) {
+      botState.enabled = false;
+      botState.lastDecision = `Pausado por ${botState.consecutiveLosses} perdidas consecutivas. Reinicia el dia solo si quieres volver a operar.`;
+      addBotAlert("Racha negativa", botState.lastDecision);
     } else if (openPositions.length >= CONFIG.maxOpenPositions) {
       botState.lastDecision = "Maximo de posiciones abiertas alcanzado.";
     } else if (availableUsdt < 5) {
@@ -583,18 +597,30 @@ function canEnterMarket(market, openPositions) {
   const requiredScore = highRisk ? CONFIG.highRiskMinScore : CONFIG.minScore;
   if (market.score < requiredScore) return false;
   if (highRisk && !CONFIG.allowHighRisk) return false;
-  if (market.projection4h < (highRisk ? 0.55 : 0.25)) return false;
-  if (market.rsi > (highRisk ? CONFIG.highRiskRsiMax : 72) || market.rsi < (highRisk ? CONFIG.highRiskRsiMin : 42)) return false;
-  if (market.depthBias < -0.08) return false;
+  if (botState.consecutiveLosses >= CONFIG.maxConsecutiveLosses) return false;
+  if (hadRecentLoss(market.symbol)) return false;
+  if (getDayRangePct(market) > CONFIG.maxDayRangePct) return false;
+  if (market.projection4h < (highRisk ? 0.9 : CONFIG.minProjection4hPct)) return false;
+  if (market.rsi == null || market.rsi > (highRisk ? CONFIG.highRiskRsiMax : CONFIG.rsiMax) || market.rsi < (highRisk ? CONFIG.highRiskRsiMin : CONFIG.rsiMin)) return false;
+  if (market.depthBias < (highRisk ? CONFIG.highRiskMinDepthBias : CONFIG.minDepthBias)) return false;
   if (market.spreadPct != null && market.spreadPct > (highRisk ? CONFIG.highRiskMaxSpreadPct : CONFIG.maxSpreadPct)) return false;
-  if (highRisk && market.depthBias < CONFIG.highRiskMinDepthBias) return false;
   if (highRisk && market.changePct > CONFIG.highRiskMax24hChangePct) return false;
-  if (highRisk && market.smaFast && market.smaSlow && market.smaFast <= market.smaSlow) return false;
+  if (market.smaFast && market.smaSlow && (market.smaFast / market.smaSlow - 1) * 100 < CONFIG.minTrendBiasPct) return false;
   if (market.volumeQuote < CONFIG.minQuoteVolumeUsdt) return false;
   if (market.changePct > CONFIG.max24hChangePct) return false;
   if (openPositions.some((position) => position.symbol === market.symbol)) return false;
   if (highRisk && openPositions.filter((position) => position.risk === "alto").length >= CONFIG.maxHighRiskOpenPositions) return false;
   return true;
+}
+
+function getDayRangePct(market) {
+  return market.price ? ((market.highPrice - market.lowPrice) / market.price) * 100 : 0;
+}
+
+function hadRecentLoss(symbol) {
+  if (!CONFIG.cooldownAfterLossMs) return false;
+  const cutoff = Date.now() - CONFIG.cooldownAfterLossMs;
+  return botState.trades.some((trade) => trade.symbol === symbol && trade.pnlUsdt < 0 && trade.closedAt >= cutoff);
 }
 
 function getTradeSizeForMarket(market) {
@@ -719,6 +745,7 @@ async function closePosition(position, reason, currentPrice = null, options = {}
     position.realizedPnlUsdt = pnl.netUsdt;
     position.lastCloseError = null;
     botState.dailyRealizedPnl += pnl.netUsdt;
+    botState.consecutiveLosses = pnl.netUsdt < 0 ? (botState.consecutiveLosses || 0) + 1 : 0;
     botState.trades.unshift({
       id: crypto.randomUUID(),
       symbol: position.symbol,
@@ -731,6 +758,12 @@ async function closePosition(position, reason, currentPrice = null, options = {}
     });
     botState.trades = botState.trades.slice(0, 100);
     botState.lastDecision = `Salida ${position.symbol}: ${reason}, PnL ${pnl.netUsdt.toFixed(4)} USDT.`;
+    if (botState.consecutiveLosses >= CONFIG.maxConsecutiveLosses) {
+      botState.enabled = false;
+      botState.lastDecision += ` Bot pausado por ${botState.consecutiveLosses} perdidas consecutivas.`;
+      scheduleBotLoop();
+      schedulePositionGuard();
+    }
     addBotAlert("Salida del bot", botState.lastDecision);
     saveState();
   } catch (error) {
@@ -1121,6 +1154,7 @@ async function buildBotStatus() {
     fx,
     dayKey: botState.dayKey,
     dailyRealizedPnlUsdt: botState.dailyRealizedPnl,
+    consecutiveLosses: botState.consecutiveLosses || 0,
     unrealizedPnlUsdt: unrealized,
     totalBotPnlUsdt: botState.dailyRealizedPnl + unrealized,
     totalBotPnlBob: fx.mid ? (botState.dailyRealizedPnl + unrealized) * fx.mid : null,
@@ -1345,6 +1379,8 @@ function safeConfig() {
     maxOpenPositions: CONFIG.maxOpenPositions,
     dailyProfitTargetUsdt: CONFIG.dailyProfitTargetUsdt,
     dailyMaxLossUsdt: CONFIG.dailyMaxLossUsdt,
+    maxConsecutiveLosses: CONFIG.maxConsecutiveLosses,
+    cooldownAfterLossMs: CONFIG.cooldownAfterLossMs,
     minNotionalBufferPct: CONFIG.minNotionalBufferPct,
     minScore: CONFIG.minScore,
     allowRescueTopUp: CONFIG.allowRescueTopUp,
@@ -1358,7 +1394,13 @@ function safeConfig() {
     scanUniverseLimit: CONFIG.scanUniverseLimit,
     minQuoteVolumeUsdt: CONFIG.minQuoteVolumeUsdt,
     max24hChangePct: CONFIG.max24hChangePct,
+    maxDayRangePct: CONFIG.maxDayRangePct,
     maxSpreadPct: CONFIG.maxSpreadPct,
+    minDepthBias: CONFIG.minDepthBias,
+    minProjection4hPct: CONFIG.minProjection4hPct,
+    rsiMin: CONFIG.rsiMin,
+    rsiMax: CONFIG.rsiMax,
+    minTrendBiasPct: CONFIG.minTrendBiasPct,
     maxPositionLossPct: CONFIG.maxPositionLossPct,
     exitWeakScore: CONFIG.exitWeakScore,
     takerFeeRateFallback: CONFIG.takerFeeRate,

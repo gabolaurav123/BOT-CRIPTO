@@ -40,6 +40,8 @@ const STABLE_OR_WRAPPED_BASES = new Set([
   "WBTC",
 ]);
 
+const UNIVERSE_MODE = (process.env.BOT_UNIVERSE_MODE || "conservative").toLowerCase();
+
 const CONFIG = {
   port: Number(process.env.PORT || 8080),
   binanceBaseUrl: stripTrailingSlash(process.env.BINANCE_BASE_URL || "https://api.binance.com"),
@@ -56,12 +58,22 @@ const CONFIG = {
   dailyProfitTargetUsdt: envNum("BOT_DAILY_PROFIT_TARGET_USDT", 10),
   dailyMaxLossUsdt: envNum("BOT_DAILY_MAX_LOSS_USDT", 2.5),
   minScore: envNum("BOT_MIN_SCORE", 82),
+  highRiskMinScore: envNum("BOT_HIGH_RISK_MIN_SCORE", 90),
   scanIntervalMs: Math.max(15000, envNum("BOT_SCAN_INTERVAL_MS", 60000)),
+  scanUniverseLimit: Math.max(30, envNum("BOT_SCAN_UNIVERSE_LIMIT", 140)),
+  minQuoteVolumeUsdt: envNum("BOT_MIN_QUOTE_VOLUME_USDT", 2500000),
+  max24hChangePct: envNum("BOT_MAX_24H_CHANGE_PCT", 35),
   takerFeeRate: envNum("BOT_TAKER_FEE_RATE", 0.001),
   stopLossPct: envNum("BOT_STOP_LOSS_PCT", 1.8),
   takeProfitPct: envNum("BOT_TAKE_PROFIT_PCT", 1.2),
   trailingStopPct: envNum("BOT_TRAILING_STOP_PCT", 0.7),
-  allowedSymbols: parseSymbolList(process.env.BOT_ALLOWED_SYMBOLS, DEFAULT_ALLOWED_SYMBOLS),
+  allowHighRisk: envBool("BOT_ALLOW_HIGH_RISK", false),
+  highRiskMaxTradeUsdt: envNum("BOT_HIGH_RISK_MAX_TRADE_USDT", 5),
+  maxHighRiskOpenPositions: Math.max(0, envNum("BOT_MAX_HIGH_RISK_OPEN_POSITIONS", 2)),
+  highRiskStopLossPct: envNum("BOT_HIGH_RISK_STOP_LOSS_PCT", 1.2),
+  highRiskTakeProfitPct: envNum("BOT_HIGH_RISK_TAKE_PROFIT_PCT", 1.8),
+  universeMode: UNIVERSE_MODE,
+  allowedSymbols: parseSymbolList(process.env.BOT_ALLOWED_SYMBOLS, UNIVERSE_MODE === "dynamic" ? [] : DEFAULT_ALLOWED_SYMBOLS),
   excludedSymbols: parseSymbolList(process.env.BOT_EXCLUDED_SYMBOLS, []),
   recvWindow: 5000,
   timezone: "America/La_Paz",
@@ -200,7 +212,7 @@ async function routeApi(req, res, url) {
   }
 
   if (url.pathname === "/api/market/snapshot" && req.method === "GET") {
-    const scan = await scanMarket({ includeDepth: false, limit: 30 });
+    const scan = await scanMarket({ includeDepth: false, limit: CONFIG.scanUniverseLimit });
     sendJson(res, 200, { ok: true, markets: scan });
     return;
   }
@@ -439,7 +451,7 @@ async function runBotScan(options = {}) {
 
   try {
     const account = await getAccountSummary();
-    const scan = await scanMarket({ includeDepth: true, limit: 30 });
+    const scan = await scanMarket({ includeDepth: true, limit: CONFIG.scanUniverseLimit });
     const marketsBySymbol = new Map(scan.map((market) => [market.symbol, market]));
     await manageOpenPositions(marketsBySymbol);
 
@@ -483,27 +495,53 @@ async function runBotScan(options = {}) {
 }
 
 function canEnterMarket(market, openPositions) {
-  if (market.score < CONFIG.minScore) return false;
-  if (market.risk === "alto") return false;
-  if (market.projection4h < 0.25) return false;
-  if (market.rsi > 72 || market.rsi < 42) return false;
+  const highRisk = market.risk === "alto";
+  const requiredScore = highRisk ? CONFIG.highRiskMinScore : CONFIG.minScore;
+  if (market.score < requiredScore) return false;
+  if (highRisk && !CONFIG.allowHighRisk) return false;
+  if (market.projection4h < (highRisk ? 0.55 : 0.25)) return false;
+  if (market.rsi > (highRisk ? 68 : 72) || market.rsi < (highRisk ? 45 : 42)) return false;
   if (market.depthBias < -0.08) return false;
+  if (highRisk && market.depthBias <= 0) return false;
+  if (market.volumeQuote < CONFIG.minQuoteVolumeUsdt) return false;
+  if (market.changePct > CONFIG.max24hChangePct) return false;
   if (openPositions.some((position) => position.symbol === market.symbol)) return false;
+  if (highRisk && openPositions.filter((position) => position.risk === "alto").length >= CONFIG.maxHighRiskOpenPositions) return false;
   return true;
+}
+
+function getTradeSizeForMarket(market) {
+  if (market.risk === "alto") return Math.min(CONFIG.highRiskMaxTradeUsdt, CONFIG.maxTradeUsdt);
+  if (market.risk === "moderado") return CONFIG.maxTradeUsdt;
+  return CONFIG.maxTradeUsdt;
+}
+
+function getExitConfigForMarket(market) {
+  if (market.risk === "alto") {
+    return {
+      stopLossPct: CONFIG.highRiskStopLossPct,
+      takeProfitPct: CONFIG.highRiskTakeProfitPct,
+    };
+  }
+  return {
+    stopLossPct: CONFIG.stopLossPct,
+    takeProfitPct: CONFIG.takeProfitPct,
+  };
 }
 
 async function openPosition(market, availableUsdt) {
   const symbolInfo = await getSymbolInfo(market.symbol);
   const minNotional = symbolInfo.minNotional || 5;
-  const amountUsdt = Math.min(CONFIG.maxTradeUsdt, availableUsdt, CONFIG.maxCapitalUsdt);
+  const amountUsdt = Math.min(getTradeSizeForMarket(market), availableUsdt, CONFIG.maxCapitalUsdt);
   if (amountUsdt < minNotional) {
     botState.lastDecision = `${market.symbol} descartado: monto ${amountUsdt.toFixed(2)} menor al minimo ${minNotional}.`;
     return;
   }
 
   const feeRate = await getCommissionRate(market.symbol);
-  const expectedStop = market.price * (1 - CONFIG.stopLossPct / 100);
-  const expectedTarget = market.price * (1 + (CONFIG.takeProfitPct + feeRate * 200) / 100);
+  const exitConfig = getExitConfigForMarket(market);
+  const expectedStop = market.price * (1 - exitConfig.stopLossPct / 100);
+  const expectedTarget = market.price * (1 + (exitConfig.takeProfitPct + feeRate * 200) / 100);
   const order = await placeMarketBuy(market.symbol, amountUsdt);
   const quantity = order.executedQty || amountUsdt / market.price;
   const entryPrice = order.avgPrice || market.price;
@@ -523,6 +561,7 @@ async function openPosition(market, availableUsdt) {
     target: expectedTarget,
     peakPrice: Number(entryPrice),
     scoreAtEntry: market.score,
+    risk: market.risk,
     openedAt: Date.now(),
     buyOrderId: order.orderId || null,
     reason: market.reason,
@@ -676,10 +715,10 @@ async function scanMarket(options = {}) {
     .filter((ticker) => !excluded.has(ticker.symbol))
     .filter((ticker) => !allowed.size || allowed.has(ticker.symbol))
     .map((ticker) => buildMarketFromTicker(ticker, tradable.get(ticker.symbol)))
-    .filter((market) => market.price > 0 && market.volumeQuote > 1000000)
+    .filter((market) => market.price > 0 && market.volumeQuote >= CONFIG.minQuoteVolumeUsdt)
     .filter((market) => !STABLE_OR_WRAPPED_BASES.has(market.baseAsset))
     .sort((a, b) => b.volumeQuote - a.volumeQuote)
-    .slice(0, options.limit || 30);
+    .slice(0, options.limit || CONFIG.scanUniverseLimit);
 
   const queue = [...candidates];
   const workers = Array.from({ length: 5 }, async () => {
@@ -759,7 +798,8 @@ function recalculateMarket(market) {
   const riskPenalty = dayRange > 22 ? 18 : dayRange > 14 ? 10 : dayRange < 2 ? 4 : 0;
   market.score = Math.round(clamp(34 + liquidityScore + momentumScore + rsiScore + trendScore + projectionScore + depthScore - riskPenalty, 0, 100));
   market.risk = classifyRisk(market, dayRange);
-  market.signal = market.score >= CONFIG.minScore && market.risk !== "alto" ? "buy" : market.score >= 60 ? "watch" : "avoid";
+  const canSignalBuy = market.risk === "alto" ? CONFIG.allowHighRisk && market.score >= CONFIG.highRiskMinScore : market.score >= CONFIG.minScore;
+  market.signal = canSignalBuy ? "buy" : market.score >= 60 ? "watch" : "avoid";
   market.reason = buildReason(market);
 }
 
@@ -1072,11 +1112,21 @@ function safeConfig() {
     dailyProfitTargetUsdt: CONFIG.dailyProfitTargetUsdt,
     dailyMaxLossUsdt: CONFIG.dailyMaxLossUsdt,
     minScore: CONFIG.minScore,
+    highRiskMinScore: CONFIG.highRiskMinScore,
     scanIntervalMs: CONFIG.scanIntervalMs,
+    scanUniverseLimit: CONFIG.scanUniverseLimit,
+    minQuoteVolumeUsdt: CONFIG.minQuoteVolumeUsdt,
+    max24hChangePct: CONFIG.max24hChangePct,
     takerFeeRateFallback: CONFIG.takerFeeRate,
     stopLossPct: CONFIG.stopLossPct,
     takeProfitPct: CONFIG.takeProfitPct,
     trailingStopPct: CONFIG.trailingStopPct,
+    allowHighRisk: CONFIG.allowHighRisk,
+    highRiskMaxTradeUsdt: CONFIG.highRiskMaxTradeUsdt,
+    maxHighRiskOpenPositions: CONFIG.maxHighRiskOpenPositions,
+    highRiskStopLossPct: CONFIG.highRiskStopLossPct,
+    highRiskTakeProfitPct: CONFIG.highRiskTakeProfitPct,
+    universeMode: CONFIG.universeMode,
     allowedSymbols: CONFIG.allowedSymbols,
     excludedSymbols: CONFIG.excludedSymbols,
   };

@@ -927,7 +927,9 @@ function renderBackendStatus() {
       ? "Modo LIVE activo: el backend puede enviar ordenes reales de Spot usando solo el USDT libre permitido por los limites del bot. No garantiza ganancias."
       : "Modo PAPER activo: el bot analiza y simula, pero no envia ordenes reales hasta configurar BOT_LIVE_TRADING=true en el servidor.";
   els.botModeValue.textContent = backend.mode === "live" ? "Live real" : "Paper";
-  els.botModeDetail.textContent = backend.configured ? `API ${backend.safeConfig.apiKey || "sin key"}` : "Faltan variables Binance";
+  els.botModeDetail.textContent = backend.configured
+    ? `API ${backend.safeConfig.apiKey || "sin key"} - ${backend.safeConfig.universeMode || "conservative"}`
+    : "Faltan variables Binance";
   els.botEnabledValue.textContent = backend.enabled ? "Activo" : "Pausado";
   els.botLastScan.textContent = backend.lastScanAt ? `Ultimo ${new Date(backend.lastScanAt).toLocaleTimeString("es-BO")}` : "Sin escaneo";
   els.dailyLossLimit.textContent = money.format(-(backend.safeConfig.dailyMaxLossUsdt || 0));

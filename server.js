@@ -56,7 +56,7 @@ const CONFIG = {
   maxTradeUsdt: envNum("BOT_MAX_TRADE_USDT", 6),
   maxOpenPositions: Math.max(1, envNum("BOT_MAX_OPEN_POSITIONS", 4)),
   dailyProfitTargetUsdt: envNum("BOT_DAILY_PROFIT_TARGET_USDT", 10),
-  dailyMaxLossUsdt: envNum("BOT_DAILY_MAX_LOSS_USDT", 2.5),
+  dailyMaxLossUsdt: envNum("BOT_DAILY_MAX_LOSS_USDT", 1),
   minNotionalBufferPct: envNum("BOT_MIN_NOTIONAL_BUFFER_PCT", 12),
   allowRescueTopUp: envBool("BOT_ALLOW_RESCUE_TOP_UP", true),
   rescueTopUpBufferPct: envNum("BOT_RESCUE_TOP_UP_BUFFER_PCT", 15),
@@ -264,6 +264,15 @@ async function routeApi(req, res, url) {
     return;
   }
 
+  if (url.pathname === "/api/bot/reset-day" && req.method === "POST") {
+    resetTradingDay("Reinicio manual del dia operativo. El bot queda pausado hasta que lo inicies.");
+    botState.enabled = false;
+    scheduleBotLoop();
+    schedulePositionGuard();
+    sendJson(res, 200, await buildBotStatus());
+    return;
+  }
+
   if (url.pathname === "/api/bot/scan" && req.method === "POST") {
     await runBotScan({ manual: true });
     sendJson(res, 200, await buildBotStatus());
@@ -454,9 +463,15 @@ function hasOpenPositions() {
 function resetDailyIfNeeded() {
   const key = dayKey();
   if (botState.dayKey === key) return;
-  botState.dayKey = key;
+  resetTradingDay("Nuevo dia operativo. Se reiniciaron los limites diarios de PnL.");
+}
+
+function resetTradingDay(message) {
+  botState.dayKey = dayKey();
   botState.dailyRealizedPnl = 0;
-  addBotAlert("Nuevo dia operativo", "Se reiniciaron los limites diarios de PnL.");
+  botState.lastError = null;
+  botState.lastDecision = message;
+  addBotAlert("Dia operativo reiniciado", message);
   saveState();
 }
 

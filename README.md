@@ -24,7 +24,7 @@ BOT_LIVE_TRADING=false
 BOT_MAX_CAPITAL_USDT=50
 BOT_MAX_TRADE_USDT=6
 BOT_DAILY_PROFIT_TARGET_USDT=10
-BOT_DAILY_MAX_LOSS_USDT=2.5
+BOT_DAILY_MAX_LOSS_USDT=1
 BOT_MIN_NOTIONAL_BUFFER_PCT=12
 BOT_ALLOW_RESCUE_TOP_UP=true
 BOT_RESCUE_TOP_UP_BUFFER_PCT=15
@@ -83,6 +83,7 @@ Si la IP cambia despues de reiniciar o redeployar Seenode, Binance puede rechaza
 - Si Binance rechaza un cierre por `NOTIONAL`, `BOT_RETRY_NOTIONAL_CLOSE=true` intenta rescatar y vender una vez mas.
 - Revisa salidas con `BOT_POSITION_CHECK_INTERVAL_MS` y tambien antes de responder el estado del panel con `BOT_STATUS_EXIT_GUARD=true`.
 - Pausa entradas si alcanza el objetivo diario o perdida diaria.
+- El boton `Reiniciar dia` borra el PnL diario y deja el bot pausado para que puedas iniciarlo manualmente.
 - Calcula PnL neto estimado con comision taker.
 - Muestra USDT/BOB usando Binance P2P y fallback `bo.dolarapi.com`.
 - En `BOT_UNIVERSE_MODE=dynamic` analiza muchas mas criptos spot USDT de Binance.

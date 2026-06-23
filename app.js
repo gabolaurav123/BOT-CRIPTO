@@ -126,6 +126,7 @@ const els = {
   startBotBtn: document.querySelector("#startBotBtn"),
   stopBotBtn: document.querySelector("#stopBotBtn"),
   scanBotBtn: document.querySelector("#scanBotBtn"),
+  resetDayBtn: document.querySelector("#resetDayBtn"),
   backendRefreshBtn: document.querySelector("#backendRefreshBtn"),
   botPositionsList: document.querySelector("#botPositionsList"),
   logoutBtn: document.querySelector("#logoutBtn"),
@@ -294,7 +295,7 @@ async function callBotAction(path) {
 }
 
 function setBackendButtons(enabled) {
-  [els.startBotBtn, els.stopBotBtn, els.scanBotBtn, els.backendRefreshBtn].forEach((button) => {
+  [els.startBotBtn, els.stopBotBtn, els.scanBotBtn, els.resetDayBtn, els.backendRefreshBtn].forEach((button) => {
     if (button) button.disabled = !enabled;
   });
 }
@@ -370,6 +371,11 @@ function bindEvents() {
   els.startBotBtn.addEventListener("click", () => callBotAction("/api/bot/start"));
   els.stopBotBtn.addEventListener("click", () => callBotAction("/api/bot/stop"));
   els.scanBotBtn.addEventListener("click", () => callBotAction("/api/bot/scan"));
+  els.resetDayBtn.addEventListener("click", () => {
+    if (window.confirm("Reiniciar el PnL diario? El bot quedara pausado hasta que lo inicies manualmente.")) {
+      callBotAction("/api/bot/reset-day");
+    }
+  });
   els.backendRefreshBtn.addEventListener("click", refreshBackendStatus);
   els.logoutBtn.addEventListener("click", logout);
 

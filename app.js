@@ -974,6 +974,7 @@ function renderBotPosition(position) {
         <span>Stop ${formatPrice(position.stop)}</span>
         <span>Target ${formatPrice(position.target)}</span>
       </div>
+      ${position.lastCloseError ? `<div class="position-error">No se pudo cerrar: ${escapeHtml(position.lastCloseError)}</div>` : ""}
     </div>
     <div class="position-actions"></div>
   `;
@@ -990,13 +991,16 @@ async function closeBotPosition(positionId) {
   try {
     const status = await backendRequest("/api/bot/close", {
       method: "POST",
-      body: JSON.stringify({ positionId }),
+      body: JSON.stringify({ positionId, force: true }),
     });
     state.backend.status = status;
     state.backend.available = true;
     state.backend.error = null;
   } catch (error) {
+    state.backend.error = error.message;
+    if (els.botDecision) els.botDecision.textContent = `Error cerrando posicion: ${error.message}`;
     addAlert("Error cerrando posicion", error.message, "warning");
+    await refreshBackendStatus();
   } finally {
     setBackendButtons(true);
     renderBackendStatus();

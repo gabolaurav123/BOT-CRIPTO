@@ -762,6 +762,12 @@ canvas {
   font-size: 0.88rem;
 }
 
+.position-error {
+  color: var(--red);
+  font-size: 0.84rem;
+  font-weight: 850;
+}
+
 .position-actions {
   display: flex;
   gap: 8px;

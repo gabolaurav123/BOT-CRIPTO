@@ -269,12 +269,14 @@ async function routeApi(req, res, url) {
 
   if (url.pathname === "/api/bot/close" && req.method === "POST") {
     const body = await readJsonBody(req);
-    const position = botState.positions.find((item) => item.id === body.positionId && item.status === "open");
+    const position = body.positionId
+      ? botState.positions.find((item) => item.id === body.positionId && item.status === "open")
+      : botState.positions.find((item) => item.symbol === body.symbol && item.status === "open");
     if (!position) {
       sendJson(res, 404, { ok: false, error: "Open position not found." });
       return;
     }
-    await closePosition(position, "manual close");
+    await closePosition(position, "manual close", null, { forceWalletBalance: Boolean(body.force) });
     sendJson(res, 200, await buildBotStatus());
     return;
   }
@@ -660,37 +662,48 @@ async function manageOpenPositions(marketsBySymbol) {
   }
 }
 
-async function closePosition(position, reason, currentPrice = null) {
-  const market = currentPrice ? { price: currentPrice } : await getMarketForSymbol(position.symbol);
-  const exitPrice = market?.price || position.entryPrice;
-  await rescueBelowNotionalPosition(position, exitPrice);
-  const order = await placeMarketSell(position.symbol, position.quantity);
-  const executedQty = order.executedQty || position.quantity;
-  const quote = order.cummulativeQuoteQty || executedQty * exitPrice;
-  const avgPrice = order.avgPrice || quote / executedQty || exitPrice;
-  const pnl = estimatePositionPnl(position, avgPrice, quote);
+async function closePosition(position, reason, currentPrice = null, options = {}) {
+  try {
+    const market = currentPrice ? { price: currentPrice } : await getMarketForSymbol(position.symbol);
+    const exitPrice = market?.price || position.entryPrice;
+    await rescueBelowNotionalPosition(position, exitPrice);
+    const order = await placeMarketSell(position.symbol, position.quantity, options);
+    const executedQty = order.executedQty || position.quantity;
+    const quote = order.cummulativeQuoteQty || executedQty * exitPrice;
+    const avgPrice = order.avgPrice || quote / executedQty || exitPrice;
+    const pnl = estimatePositionPnl(position, avgPrice, quote);
 
-  position.status = "closed";
-  position.closedAt = Date.now();
-  position.exitPrice = Number(avgPrice);
-  position.exitReason = reason;
-  position.sellOrderId = order.orderId || null;
-  position.realizedPnlUsdt = pnl.netUsdt;
-  botState.dailyRealizedPnl += pnl.netUsdt;
-  botState.trades.unshift({
-    id: crypto.randomUUID(),
-    symbol: position.symbol,
-    reason,
-    mode: position.mode,
-    amountUsdt: position.amountUsdt,
-    pnlUsdt: pnl.netUsdt,
-    openedAt: position.openedAt,
-    closedAt: position.closedAt,
-  });
-  botState.trades = botState.trades.slice(0, 100);
-  botState.lastDecision = `Salida ${position.symbol}: ${reason}, PnL ${pnl.netUsdt.toFixed(4)} USDT.`;
-  addBotAlert("Salida del bot", botState.lastDecision);
-  saveState();
+    position.status = "closed";
+    position.closedAt = Date.now();
+    position.exitPrice = Number(avgPrice);
+    position.exitReason = reason;
+    position.sellOrderId = order.orderId || null;
+    position.realizedPnlUsdt = pnl.netUsdt;
+    position.lastCloseError = null;
+    botState.dailyRealizedPnl += pnl.netUsdt;
+    botState.trades.unshift({
+      id: crypto.randomUUID(),
+      symbol: position.symbol,
+      reason,
+      mode: position.mode,
+      amountUsdt: position.amountUsdt,
+      pnlUsdt: pnl.netUsdt,
+      openedAt: position.openedAt,
+      closedAt: position.closedAt,
+    });
+    botState.trades = botState.trades.slice(0, 100);
+    botState.lastDecision = `Salida ${position.symbol}: ${reason}, PnL ${pnl.netUsdt.toFixed(4)} USDT.`;
+    addBotAlert("Salida del bot", botState.lastDecision);
+    saveState();
+  } catch (error) {
+    const message = publicError(error);
+    position.lastCloseError = message;
+    position.lastCloseErrorAt = Date.now();
+    botState.lastDecision = `No se pudo cerrar ${position.symbol}: ${message}`;
+    addBotAlert("Error cerrando posicion", botState.lastDecision);
+    saveState();
+    throw error;
+  }
 }
 
 async function rescueBelowNotionalPosition(position, exitPrice) {
@@ -752,7 +765,7 @@ async function placeMarketBuy(symbol, quoteOrderQty) {
   return normalizeOrder(result);
 }
 
-async function placeMarketSell(symbol, quantity) {
+async function placeMarketSell(symbol, quantity, options = {}) {
   if (!CONFIG.liveTrading) {
     const market = await getMarketForSymbol(symbol);
     const price = market?.price || 1;
@@ -767,7 +780,8 @@ async function placeMarketSell(symbol, quantity) {
   const info = await getSymbolInfo(symbol);
   const account = await getAccountSummary();
   const freeBase = account.spot?.[info.baseAsset]?.free ?? 0;
-  const sellQty = roundStep(Math.min(quantity, freeBase), info.stepSize);
+  const rawQty = options.forceWalletBalance ? freeBase : Math.min(quantity, freeBase);
+  const sellQty = roundStep(rawQty, info.stepSize);
   const market = await getMarketForSymbol(symbol).catch(() => null);
   const estimatedQuote = sellQty * (market?.price || 0);
   if (estimatedQuote > 0 && estimatedQuote < info.minNotional) {
@@ -775,7 +789,9 @@ async function placeMarketSell(symbol, quantity) {
       `NOTIONAL minimo: ${symbol} vale aprox. ${estimatedQuote.toFixed(4)} USDT y Binance exige ${info.minNotional} USDT. Espera que suba por encima del minimo o compra mas de esa moneda para poder vender todo.`
     );
   }
-  if (sellQty <= 0) throw new Error(`No hay ${info.baseAsset} libre para vender.`);
+  if (sellQty <= 0) {
+    throw new Error(`No hay ${info.baseAsset} libre para vender. Balance libre reportado: ${freeBase}. Cantidad posicion: ${quantity}.`);
+  }
   const result = await binanceSignedRequest("POST", "/api/v3/order", {
     symbol,
     side: "SELL",

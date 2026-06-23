@@ -58,6 +58,9 @@ const CONFIG = {
   dailyProfitTargetUsdt: envNum("BOT_DAILY_PROFIT_TARGET_USDT", 10),
   dailyMaxLossUsdt: envNum("BOT_DAILY_MAX_LOSS_USDT", 2.5),
   minNotionalBufferPct: envNum("BOT_MIN_NOTIONAL_BUFFER_PCT", 12),
+  allowRescueTopUp: envBool("BOT_ALLOW_RESCUE_TOP_UP", true),
+  rescueTopUpBufferPct: envNum("BOT_RESCUE_TOP_UP_BUFFER_PCT", 15),
+  maxRescueTopUpUsdt: envNum("BOT_MAX_RESCUE_TOP_UP_USDT", 8),
   minScore: envNum("BOT_MIN_SCORE", 82),
   highRiskMinScore: envNum("BOT_HIGH_RISK_MIN_SCORE", 90),
   scanIntervalMs: Math.max(15000, envNum("BOT_SCAN_INTERVAL_MS", 60000)),
@@ -604,6 +607,7 @@ async function manageOpenPositions(marketsBySymbol) {
 async function closePosition(position, reason, currentPrice = null) {
   const market = currentPrice ? { price: currentPrice } : await getMarketForSymbol(position.symbol);
   const exitPrice = market?.price || position.entryPrice;
+  await rescueBelowNotionalPosition(position, exitPrice);
   const order = await placeMarketSell(position.symbol, position.quantity);
   const executedQty = order.executedQty || position.quantity;
   const quote = order.cummulativeQuoteQty || executedQty * exitPrice;
@@ -630,6 +634,43 @@ async function closePosition(position, reason, currentPrice = null) {
   botState.trades = botState.trades.slice(0, 100);
   botState.lastDecision = `Salida ${position.symbol}: ${reason}, PnL ${pnl.netUsdt.toFixed(4)} USDT.`;
   addBotAlert("Salida del bot", botState.lastDecision);
+  saveState();
+}
+
+async function rescueBelowNotionalPosition(position, exitPrice) {
+  if (!CONFIG.liveTrading || !CONFIG.allowRescueTopUp) return;
+  const info = await getSymbolInfo(position.symbol);
+  const currentNotional = position.quantity * exitPrice;
+  const targetNotional = info.minNotional * (1 + CONFIG.rescueTopUpBufferPct / 100);
+  if (currentNotional >= info.minNotional) return;
+
+  const quoteOrderQty = Math.max(targetNotional - currentNotional, targetNotional);
+  if (quoteOrderQty > CONFIG.maxRescueTopUpUsdt) {
+    throw new Error(
+      `NOTIONAL minimo: ${position.symbol} vale ${currentNotional.toFixed(4)} USDT y requiere rescate de ${quoteOrderQty.toFixed(2)} USDT, mayor al limite BOT_MAX_RESCUE_TOP_UP_USDT=${CONFIG.maxRescueTopUpUsdt}.`
+    );
+  }
+
+  const account = await getAccountSummary();
+  const freeUsdt = account.spot?.USDT?.free ?? 0;
+  if (freeUsdt < quoteOrderQty) {
+    throw new Error(
+      `NOTIONAL minimo: ${position.symbol} vale ${currentNotional.toFixed(4)} USDT. Falta USDT libre para rescate (${quoteOrderQty.toFixed(2)} requerido).`
+    );
+  }
+
+  const rescueOrder = await placeMarketBuy(position.symbol, quoteOrderQty);
+  position.quantity += Number(rescueOrder.executedQty || 0);
+  position.amountUsdt += Number(rescueOrder.cummulativeQuoteQty || quoteOrderQty);
+  position.rescueTopUps = position.rescueTopUps || [];
+  position.rescueTopUps.push({
+    orderId: rescueOrder.orderId || null,
+    quoteOrderQty,
+    executedQty: rescueOrder.executedQty,
+    cummulativeQuoteQty: rescueOrder.cummulativeQuoteQty,
+    createdAt: Date.now(),
+  });
+  addBotAlert("Rescate por minimo Binance", `${position.symbol}: se compro ${quoteOrderQty.toFixed(2)} USDT extra para poder vender por encima del minimo NOTIONAL.`);
   saveState();
 }
 
@@ -1128,6 +1169,9 @@ function safeConfig() {
     dailyMaxLossUsdt: CONFIG.dailyMaxLossUsdt,
     minNotionalBufferPct: CONFIG.minNotionalBufferPct,
     minScore: CONFIG.minScore,
+    allowRescueTopUp: CONFIG.allowRescueTopUp,
+    rescueTopUpBufferPct: CONFIG.rescueTopUpBufferPct,
+    maxRescueTopUpUsdt: CONFIG.maxRescueTopUpUsdt,
     highRiskMinScore: CONFIG.highRiskMinScore,
     scanIntervalMs: CONFIG.scanIntervalMs,
     scanUniverseLimit: CONFIG.scanUniverseLimit,

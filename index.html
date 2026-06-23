@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Binance Crypto Radar</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="side-rail" aria-label="Navegacion principal">
+        <div class="brand-mark" aria-label="Binance Crypto Radar">B</div>
+        <button class="rail-button is-active" data-view="radar" title="Radar">
+          <i data-lucide="radar"></i>
+        </button>
+        <button class="rail-button" data-view="portfolio" title="Portafolio">
+          <i data-lucide="wallet"></i>
+        </button>
+        <button class="rail-button" data-view="alerts" title="Alertas">
+          <i data-lucide="bell-ring"></i>
+        </button>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Datos publicos de Binance</p>
+            <h1>Crypto Radar</h1>
+          </div>
+          <div class="status-stack">
+            <span id="connectionStatus" class="status-pill status-muted">
+              <span class="pulse"></span>
+              Conectando
+            </span>
+            <span id="lastUpdate" class="microcopy">Sin datos aun</span>
+          </div>
+        </header>
+
+        <section class="control-strip" aria-label="Controles de presupuesto y riesgo">
+          <label class="field">
+            <span>Presupuesto simulado</span>
+            <div class="input-with-prefix">
+              <span>$</span>
+              <input id="budgetInput" type="number" min="10" step="1" value="50" />
+            </div>
+          </label>
+
+          <div class="segmented" role="group" aria-label="Perfil de riesgo">
+            <button data-risk="balanced" class="is-active">Balanceado</button>
+            <button data-risk="safe">Mas seguro</button>
+            <button data-risk="aggressive">Agresivo</button>
+          </div>
+
+          <div class="search-box">
+            <i data-lucide="search"></i>
+            <input id="searchInput" type="search" placeholder="Buscar BTC, ETH, SOL..." />
+          </div>
+
+          <button id="refreshBtn" class="icon-button primary" title="Actualizar ahora">
+            <i data-lucide="refresh-cw"></i>
+          </button>
+        </section>
+
+        <section class="notice-band" aria-label="Aviso importante">
+          <i data-lucide="shield-alert"></i>
+          <p>
+            Este panel es una herramienta educativa de analisis y paper trading. No ejecuta operaciones reales, no garantiza ganancias y no reemplaza asesoria financiera profesional.
+          </p>
+        </section>
+
+        <section class="kpi-grid" aria-label="Resumen del bot">
+          <article class="kpi">
+            <span>Capital simulado</span>
+            <strong id="equityValue">$50.00</strong>
+            <small id="goalProgress">Meta $500: 10%</small>
+          </article>
+          <article class="kpi">
+            <span>Efectivo libre</span>
+            <strong id="cashValue">$50.00</strong>
+            <small>Respeta el tamano de riesgo configurado</small>
+          </article>
+          <article class="kpi">
+            <span>Mejor senal</span>
+            <strong id="bestSignal">--</strong>
+            <small id="bestSignalDetail">Esperando mercado</small>
+          </article>
+          <article class="kpi">
+            <span>Mercados escaneados</span>
+            <strong id="marketsCount">0</strong>
+            <small id="deepScanCount">0 con indicadores profundos</small>
+          </article>
+        </section>
+
+        <section class="main-grid">
+          <div class="panel radar-panel" data-panel="radar">
+            <div class="panel-header">
+              <div>
+                <h2>Oportunidades</h2>
+                <p>Ranking de pares spot USDT con volumen, tendencia, RSI y riesgo.</p>
+              </div>
+              <select id="sortSelect" aria-label="Ordenar oportunidades">
+                <option value="score">Mejor senal</option>
+                <option value="volume">Mayor volumen</option>
+                <option value="change">Mayor subida 24h</option>
+                <option value="risk">Menor riesgo</option>
+              </select>
+            </div>
+
+            <div id="marketList" class="market-list" aria-live="polite"></div>
+          </div>
+
+          <div class="panel detail-panel">
+            <div class="panel-header">
+              <div>
+                <h2 id="detailTitle">Detalle de mercado</h2>
+                <p id="detailSubtitle">Selecciona una cripto para ver niveles y proyeccion.</p>
+              </div>
+              <span id="detailBadge" class="signal-badge neutral">Sin senal</span>
+            </div>
+
+            <div class="chart-wrap">
+              <canvas id="priceChart" width="720" height="300" aria-label="Grafico de precio"></canvas>
+            </div>
+
+            <div class="metric-matrix">
+              <div>
+                <span>Precio</span>
+                <strong id="detailPrice">--</strong>
+              </div>
+              <div>
+                <span>RSI 14</span>
+                <strong id="detailRsi">--</strong>
+              </div>
+              <div>
+                <span>Proy. 4h</span>
+                <strong id="detailProjection">--</strong>
+              </div>
+              <div>
+                <span>Riesgo</span>
+                <strong id="detailRisk">--</strong>
+              </div>
+            </div>
+
+            <div class="trade-ticket">
+              <div>
+                <span>Monto max. simulado</span>
+                <strong id="suggestedAmount">$0.00</strong>
+              </div>
+              <div>
+                <span>Entrada / salida</span>
+                <strong id="levelsText">--</strong>
+              </div>
+              <button id="acceptTradeBtn" class="action-button" disabled>
+                <i data-lucide="check-circle-2"></i>
+                Simular inversion
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section class="portfolio-grid" data-panel="portfolio">
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Posiciones simuladas</h2>
+                <p>La app guarda entradas aceptadas y avisa cuando toca proteger o cerrar.</p>
+              </div>
+              <button id="clearClosedBtn" class="ghost-button">Limpiar cerradas</button>
+            </div>
+            <div id="positionsList" class="positions-list"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Alertas</h2>
+                <p>Eventos recientes de entrada, stop, toma de ganancia y conexion.</p>
+              </div>
+              <div class="panel-actions">
+                <button id="clearAlertsBtn" class="ghost-button">Limpiar alertas</button>
+                <button id="notifyBtn" class="ghost-button">
+                  <i data-lucide="bell"></i>
+                  Activar notificaciones
+                </button>
+              </div>
+            </div>
+            <div id="alertsList" class="alerts-list"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <template id="marketRowTemplate">
+      <article class="market-row">
+        <button class="coin-button">
+          <span class="coin-logo"></span>
+          <span>
+            <strong class="coin-symbol"></strong>
+            <small class="coin-name"></small>
+          </span>
+        </button>
+        <div class="row-stat price-stat">
+          <span>Precio</span>
+          <strong class="coin-price"></strong>
+        </div>
+        <div class="row-stat">
+          <span>24h</span>
+          <strong class="coin-change"></strong>
+        </div>
+        <div class="row-stat desktop-only">
+          <span>Volumen</span>
+          <strong class="coin-volume"></strong>
+        </div>
+        <div class="score-meter" aria-label="Puntuacion de senal">
+          <span class="score-fill"></span>
+        </div>
+        <span class="signal-badge"></span>
+        <button class="mini-action" title="Simular inversion">
+          <i data-lucide="plus"></i>
+        </button>
+      </article>
+    </template>
+
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <script src="./app.js" defer></script>
+  </body>
+</html>

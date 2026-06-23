@@ -120,6 +120,8 @@ const els = {
   botLastScan: document.querySelector("#botLastScan"),
   dailyLossLimit: document.querySelector("#dailyLossLimit"),
   feeValue: document.querySelector("#feeValue"),
+  serverIpValue: document.querySelector("#serverIpValue"),
+  serverIpDetail: document.querySelector("#serverIpDetail"),
   botDecision: document.querySelector("#botDecision"),
   startBotBtn: document.querySelector("#startBotBtn"),
   stopBotBtn: document.querySelector("#stopBotBtn"),
@@ -906,6 +908,8 @@ function renderBackendStatus() {
     els.botLastScan.textContent = "Sin backend";
     els.dailyLossLimit.textContent = "--";
     els.feeValue.textContent = "--";
+    els.serverIpValue.textContent = "--";
+    els.serverIpDetail.textContent = "Copiala en Binance API";
     els.botDecision.textContent = "La web esta en modo analisis/paper local. Para operar usa el backend Node en Seenode.";
     els.botPositionsList.innerHTML = `<div class="empty-state">Backend no conectado. Las posiciones reales/paper del bot apareceran aqui.</div>`;
     setBackendButtons(false);
@@ -922,6 +926,8 @@ function renderBackendStatus() {
   els.botLastScan.textContent = backend.lastScanAt ? `Ultimo ${new Date(backend.lastScanAt).toLocaleTimeString("es-BO")}` : "Sin escaneo";
   els.dailyLossLimit.textContent = money.format(-(backend.safeConfig.dailyMaxLossUsdt || 0));
   els.feeValue.textContent = `${((backend.safeConfig.takerFeeRateFallback || 0) * 100).toFixed(3)}%`;
+  els.serverIpValue.textContent = backend.serverIp?.ip || "--";
+  els.serverIpDetail.textContent = backend.serverIp?.source ? `Actualizada ${new Date(backend.serverIp.updatedAt).toLocaleTimeString("es-BO")}` : "No disponible";
   els.botDecision.textContent = backend.lastError ? `Error: ${backend.lastError}` : backend.lastDecision || "Sin decision reciente.";
   els.startBotBtn.disabled = backend.enabled;
   els.stopBotBtn.disabled = !backend.enabled;

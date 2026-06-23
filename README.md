@@ -38,6 +38,19 @@ BOT_DAILY_MAX_LOSS_USDT=2.5
 - `APP_PASSWORD` debe ser tu contrasena privada de acceso a la web.
 - `APP_SESSION_SECRET` debe ser una cadena larga aleatoria para firmar sesiones.
 
+## IP para Binance
+
+Despues de desplegar en Seenode:
+
+1. Entra a la web con tu usuario y contrasena.
+2. Busca el bloque `Bot Spot con limites`.
+3. Copia el valor `IP de salida`.
+4. En Binance API Management selecciona `Restrict access to trusted IPs only`.
+5. Pega esa IP y guarda.
+6. Recién despues activa `Enable Spot & Margin & Stock Trading`.
+
+Si la IP cambia despues de reiniciar o redeployar Seenode, Binance puede rechazar las ordenes. En ese caso necesitas IP fija de Seenode o seguir en `BOT_LIVE_TRADING=false`.
+
 ## Alcance del bot
 
 - Usa solo saldo libre `USDT` de Spot.

@@ -90,6 +90,8 @@ const marketCache = {
   tickersAt: 0,
   fx: null,
   fxAt: 0,
+  serverIp: null,
+  serverIpAt: 0,
   commission: new Map(),
 };
 
@@ -184,6 +186,11 @@ async function routeApi(req, res, url) {
 
   if (url.pathname === "/api/account" && req.method === "GET") {
     sendJson(res, 200, await getAccountSummary());
+    return;
+  }
+
+  if (url.pathname === "/api/server-ip" && req.method === "GET") {
+    sendJson(res, 200, await getServerPublicIp());
     return;
   }
 
@@ -830,6 +837,7 @@ function botLimitsSummary(usdtFree, openExposure) {
 async function buildBotStatus() {
   const fx = await getUsdtBobRate().catch((error) => ({ ok: false, error: publicError(error), mid: null }));
   const account = await getAccountSummary().catch((error) => ({ ok: false, error: publicError(error), spot: {}, bot: botLimitsSummary(0, 0) }));
+  const serverIp = await getServerPublicIp().catch((error) => ({ ok: false, error: publicError(error), ip: null }));
   const prices = new Map();
   for (const position of botState.positions.filter((item) => item.status === "open")) {
     const market = await getMarketForSymbol(position.symbol).catch(() => null);
@@ -850,6 +858,7 @@ async function buildBotStatus() {
     configured: hasKeys(),
     safeConfig: safeConfig(),
     account,
+    serverIp,
     fx,
     dayKey: botState.dayKey,
     dailyRealizedPnlUsdt: botState.dailyRealizedPnl,
@@ -898,6 +907,20 @@ async function getUsdtBobRate() {
     marketCache.fxAt = Date.now();
     return result;
   }
+}
+
+async function getServerPublicIp() {
+  if (marketCache.serverIp && Date.now() - marketCache.serverIpAt < 5 * 60 * 1000) return marketCache.serverIp;
+  const response = await fetchJson("https://api.ipify.org?format=json", {}, 10000);
+  const result = {
+    ok: true,
+    ip: response.ip,
+    source: "api.ipify.org",
+    updatedAt: new Date().toISOString(),
+  };
+  marketCache.serverIp = result;
+  marketCache.serverIpAt = Date.now();
+  return result;
 }
 
 async function fetchP2pPrice(tradeType) {

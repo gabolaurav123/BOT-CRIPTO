@@ -997,6 +997,7 @@ async function closeBotPosition(positionId) {
     state.backend.status = status;
     state.backend.available = true;
     state.backend.error = null;
+    if (status.closeError) addAlert("No se pudo cerrar posicion", status.closeError, "warning");
   } catch (error) {
     state.backend.error = error.message;
     if (els.botDecision) els.botDecision.textContent = `Error cerrando posicion: ${error.message}`;

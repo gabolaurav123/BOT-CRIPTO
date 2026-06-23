@@ -61,6 +61,7 @@ const CONFIG = {
   allowRescueTopUp: envBool("BOT_ALLOW_RESCUE_TOP_UP", true),
   rescueTopUpBufferPct: envNum("BOT_RESCUE_TOP_UP_BUFFER_PCT", 15),
   maxRescueTopUpUsdt: envNum("BOT_MAX_RESCUE_TOP_UP_USDT", 8),
+  retryNotionalClose: envBool("BOT_RETRY_NOTIONAL_CLOSE", true),
   minScore: envNum("BOT_MIN_SCORE", 82),
   highRiskMinScore: envNum("BOT_HIGH_RISK_MIN_SCORE", 90),
   scanIntervalMs: Math.max(15000, envNum("BOT_SCAN_INTERVAL_MS", 60000)),
@@ -276,7 +277,13 @@ async function routeApi(req, res, url) {
       sendJson(res, 404, { ok: false, error: "Open position not found." });
       return;
     }
-    await closePosition(position, "manual close", null, { forceWalletBalance: Boolean(body.force) });
+    try {
+      await closePosition(position, "manual close", null, { forceWalletBalance: Boolean(body.force) });
+    } catch (error) {
+      const status = await buildBotStatus();
+      sendJson(res, 200, { ...status, closeError: publicError(error) });
+      return;
+    }
     sendJson(res, 200, await buildBotStatus());
     return;
   }
@@ -532,12 +539,14 @@ async function runBotScan(options = {}) {
     } else if (availableUsdt < 5) {
       botState.lastDecision = `USDT disponible para el bot insuficiente: ${availableUsdt.toFixed(2)}.`;
     } else {
-      const candidate = scan.find((market) => canEnterMarket(market, openPositions));
-      if (candidate) {
-        await openPosition(candidate, availableUsdt);
-      } else {
-        botState.lastDecision = "No hay entrada con ventaja suficiente segun filtros actuales.";
+      let opened = false;
+      let hadCandidate = false;
+      for (const candidate of scan.filter((market) => canEnterMarket(market, openPositions))) {
+        hadCandidate = true;
+        opened = await openPosition(candidate, availableUsdt);
+        if (opened) break;
       }
+      if (!opened && !hadCandidate) botState.lastDecision = "No hay entrada con ventaja suficiente segun filtros actuales.";
     }
 
     botState.lastScanAt = Date.now();
@@ -600,10 +609,14 @@ async function openPosition(market, availableUsdt) {
   const minNotional = symbolInfo.minNotional || 5;
   const requiredNotional = getRequiredNotional(symbolInfo);
   const preferredSize = getTradeSizeForMarket(market);
-  const amountUsdt = Math.min(Math.max(preferredSize, requiredNotional), availableUsdt, CONFIG.maxCapitalUsdt);
+  if (requiredNotional > preferredSize) {
+    botState.lastDecision = `${market.symbol} descartado: Binance exige minimo seguro ${requiredNotional.toFixed(2)} USDT y el maximo por operacion es ${preferredSize.toFixed(2)} USDT.`;
+    return false;
+  }
+  const amountUsdt = Math.min(preferredSize, availableUsdt, CONFIG.maxCapitalUsdt);
   if (amountUsdt < requiredNotional) {
     botState.lastDecision = `${market.symbol} descartado: monto ${amountUsdt.toFixed(2)} menor al minimo seguro ${requiredNotional.toFixed(2)} USDT.`;
-    return;
+    return false;
   }
 
   const feeRate = await getCommissionRate(market.symbol);
@@ -639,6 +652,7 @@ async function openPosition(market, availableUsdt) {
   botState.lastDecision = `Entrada ${position.mode}: ${market.symbol} por ${position.amountUsdt.toFixed(2)} USDT.`;
   addBotAlert("Entrada del bot", `${market.symbol}: ${position.amountUsdt.toFixed(2)} USDT a ${position.entryPrice}.`);
   saveState();
+  return true;
 }
 
 async function manageOpenPositions(marketsBySymbol) {
@@ -674,8 +688,7 @@ async function closePosition(position, reason, currentPrice = null, options = {}
   try {
     const market = currentPrice ? { price: currentPrice } : await getMarketForSymbol(position.symbol);
     const exitPrice = market?.price || position.entryPrice;
-    await rescueBelowNotionalPosition(position, exitPrice);
-    const order = await placeMarketSell(position.symbol, position.quantity, options);
+    const order = await closePositionOrder(position, exitPrice, options);
     const executedQty = order.executedQty || position.quantity;
     const quote = order.cummulativeQuoteQty || executedQty * exitPrice;
     const avgPrice = order.avgPrice || quote / executedQty || exitPrice;
@@ -714,21 +727,38 @@ async function closePosition(position, reason, currentPrice = null, options = {}
   }
 }
 
-async function rescueBelowNotionalPosition(position, exitPrice) {
+async function closePositionOrder(position, exitPrice, options = {}) {
+  await rescueBelowNotionalPosition(position, exitPrice, options);
+  try {
+    return await placeMarketSell(position.symbol, position.quantity, options);
+  } catch (error) {
+    if (!CONFIG.retryNotionalClose || !isNotionalError(error)) throw error;
+    const retryPrice = await getCloseReferencePrice(position.symbol, exitPrice);
+    await rescueBelowNotionalPosition(position, retryPrice, { ...options, forceRescue: true });
+    return placeMarketSell(position.symbol, position.quantity, { ...options, skipNotionalPrecheck: true });
+  }
+}
+
+async function rescueBelowNotionalPosition(position, exitPrice, options = {}) {
   if (!CONFIG.liveTrading || !CONFIG.allowRescueTopUp) return;
   const info = await getSymbolInfo(position.symbol);
-  const currentNotional = position.quantity * exitPrice;
+  const account = await getAccountSummary();
+  const { freeBase, sellQty } = getSellQuantityForPosition(position, info, account, options);
+  const referencePrice = await getCloseReferencePrice(position.symbol, exitPrice);
+  const currentNotional = sellQty * referencePrice;
   const targetNotional = info.minNotional * (1 + CONFIG.rescueTopUpBufferPct / 100);
-  if (currentNotional >= info.minNotional) return;
+  if (sellQty <= 0) {
+    throw new Error(`No hay ${info.baseAsset} libre para vender. Balance libre reportado: ${freeBase}. Cantidad posicion: ${position.quantity}.`);
+  }
+  if (!options.forceRescue && currentNotional >= targetNotional) return;
 
   const quoteOrderQty = Math.max(targetNotional - currentNotional, targetNotional);
   if (quoteOrderQty > CONFIG.maxRescueTopUpUsdt) {
     throw new Error(
-      `NOTIONAL minimo: ${position.symbol} vale ${currentNotional.toFixed(4)} USDT y requiere rescate de ${quoteOrderQty.toFixed(2)} USDT, mayor al limite BOT_MAX_RESCUE_TOP_UP_USDT=${CONFIG.maxRescueTopUpUsdt}.`
+      `NOTIONAL minimo: ${position.symbol} vale ${currentNotional.toFixed(4)} USDT vendible (${freeBase} ${info.baseAsset}) y requiere rescate de ${quoteOrderQty.toFixed(2)} USDT, mayor al limite BOT_MAX_RESCUE_TOP_UP_USDT=${CONFIG.maxRescueTopUpUsdt}.`
     );
   }
 
-  const account = await getAccountSummary();
   const freeUsdt = account.spot?.USDT?.free ?? 0;
   if (freeUsdt < quoteOrderQty) {
     throw new Error(
@@ -787,18 +817,20 @@ async function placeMarketSell(symbol, quantity, options = {}) {
   assertTradingReady();
   const info = await getSymbolInfo(symbol);
   const account = await getAccountSummary();
-  const freeBase = account.spot?.[info.baseAsset]?.free ?? 0;
-  const rawQty = options.forceWalletBalance ? freeBase : Math.min(quantity, freeBase);
-  const sellQty = roundStep(rawQty, info.stepSize);
-  const market = await getMarketForSymbol(symbol).catch(() => null);
-  const estimatedQuote = sellQty * (market?.price || 0);
-  if (estimatedQuote > 0 && estimatedQuote < info.minNotional) {
+  const positionLike = { symbol, quantity };
+  const { freeBase, sellQty } = getSellQuantityForPosition(positionLike, info, account, options);
+  const referencePrice = await getCloseReferencePrice(symbol, 0);
+  const estimatedQuote = sellQty * referencePrice;
+  if (!options.skipNotionalPrecheck && estimatedQuote > 0 && estimatedQuote < info.minNotional) {
     throw new Error(
       `NOTIONAL minimo: ${symbol} vale aprox. ${estimatedQuote.toFixed(4)} USDT y Binance exige ${info.minNotional} USDT. Espera que suba por encima del minimo o compra mas de esa moneda para poder vender todo.`
     );
   }
   if (sellQty <= 0) {
     throw new Error(`No hay ${info.baseAsset} libre para vender. Balance libre reportado: ${freeBase}. Cantidad posicion: ${quantity}.`);
+  }
+  if (info.marketMinQty && sellQty < info.marketMinQty) {
+    throw new Error(`Cantidad minima: ${symbol} requiere ${info.marketMinQty} ${info.baseAsset} y solo se puede vender ${sellQty}.`);
   }
   const result = await binanceSignedRequest("POST", "/api/v3/order", {
     symbol,
@@ -833,6 +865,31 @@ function estimatePositionPnl(position, currentPrice, quoteOverride = null) {
     netUsdt: gross - fees,
     netPct: position.amountUsdt ? ((gross - fees) / position.amountUsdt) * 100 : 0,
   };
+}
+
+function getSellQuantityForPosition(position, info, account, options = {}) {
+  const freeBase = account.spot?.[info.baseAsset]?.free ?? 0;
+  const positionQty = Number(position.quantity || 0);
+  const rawQty = options.forceWalletBalance ? freeBase : Math.min(positionQty, freeBase);
+  const clippedQty = Math.min(rawQty, info.marketMaxQty || rawQty);
+  const sellQty = roundStep(clippedQty, info.marketStepSize || info.stepSize);
+  return { freeBase, positionQty, rawQty, sellQty };
+}
+
+async function getCloseReferencePrice(symbol, fallback = 0) {
+  const prices = [];
+  const avgPrice = await getAveragePrice(symbol).catch(() => 0);
+  if (Number.isFinite(avgPrice) && avgPrice > 0) prices.push(avgPrice);
+  if (Number.isFinite(fallback) && fallback > 0) prices.push(fallback);
+  if (!prices.length) {
+    const market = await getMarketForSymbol(symbol).catch(() => null);
+    if (market?.price) prices.push(market.price);
+  }
+  return prices.length ? Math.min(...prices) : 0;
+}
+
+function isNotionalError(error) {
+  return /notional|filter failure/i.test(publicError(error));
 }
 
 async function scanMarket(options = {}) {
@@ -1178,22 +1235,36 @@ async function getKlines(symbol, interval, limit) {
   return binancePublicRequest(`/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}`);
 }
 
+async function getAveragePrice(symbol) {
+  const data = await binancePublicRequest(`/api/v3/avgPrice?symbol=${encodeURIComponent(symbol)}`);
+  return Number(data.price || 0);
+}
+
 async function getSymbolInfo(symbol) {
   const exchangeInfo = await getExchangeInfo();
   const raw = exchangeInfo.symbols.find((item) => item.symbol === symbol);
   if (!raw) throw new Error(`Symbol not found: ${symbol}`);
   const filters = Object.fromEntries((raw.filters || []).map((filter) => [filter.filterType, filter]));
   const lot = filters.LOT_SIZE || {};
+  const marketLot = filters.MARKET_LOT_SIZE || {};
   const minNotionalFilter = filters.NOTIONAL || filters.MIN_NOTIONAL || {};
+  const lotStepSize = Number(lot.stepSize || 0.00000001);
+  const marketStepSize = Number(marketLot.stepSize || 0);
+  const lotMaxQty = Number(lot.maxQty || Number.MAX_SAFE_INTEGER);
+  const marketMaxQty = Number(marketLot.maxQty || 0);
+  const orderStepSize = marketStepSize > 0 ? marketStepSize : lotStepSize;
   return {
     raw,
     symbol,
     baseAsset: raw.baseAsset,
     quoteAsset: raw.quoteAsset,
-    stepSize: Number(lot.stepSize || 0.00000001),
+    stepSize: lotStepSize,
+    marketStepSize: orderStepSize,
     minQty: Number(lot.minQty || 0),
+    marketMinQty: Number(marketLot.minQty || lot.minQty || 0),
+    marketMaxQty: marketMaxQty > 0 ? marketMaxQty : lotMaxQty,
     minNotional: Number(minNotionalFilter.minNotional || 5),
-    quantityPrecision: countDecimals(lot.stepSize || "0.00000001"),
+    quantityPrecision: countDecimals(marketStepSize > 0 ? marketLot.stepSize : lot.stepSize || "0.00000001"),
   };
 }
 
@@ -1260,6 +1331,7 @@ function safeConfig() {
     minNotionalBufferPct: CONFIG.minNotionalBufferPct,
     minScore: CONFIG.minScore,
     allowRescueTopUp: CONFIG.allowRescueTopUp,
+    retryNotionalClose: CONFIG.retryNotionalClose,
     rescueTopUpBufferPct: CONFIG.rescueTopUpBufferPct,
     maxRescueTopUpUsdt: CONFIG.maxRescueTopUpUsdt,
     highRiskMinScore: CONFIG.highRiskMinScore,
@@ -1386,7 +1458,7 @@ function projectMove(closes, hours) {
 
 function roundStep(value, stepSize) {
   if (!stepSize) return value;
-  return Math.floor(value / stepSize) * stepSize;
+  return Math.floor((value + Number.EPSILON) / stepSize) * stepSize;
 }
 
 function countDecimals(value) {

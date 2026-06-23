@@ -126,6 +126,7 @@ const els = {
   scanBotBtn: document.querySelector("#scanBotBtn"),
   backendRefreshBtn: document.querySelector("#backendRefreshBtn"),
   botPositionsList: document.querySelector("#botPositionsList"),
+  logoutBtn: document.querySelector("#logoutBtn"),
   detailTitle: document.querySelector("#detailTitle"),
   detailSubtitle: document.querySelector("#detailSubtitle"),
   detailBadge: document.querySelector("#detailBadge"),
@@ -367,6 +368,7 @@ function bindEvents() {
   els.stopBotBtn.addEventListener("click", () => callBotAction("/api/bot/stop"));
   els.scanBotBtn.addEventListener("click", () => callBotAction("/api/bot/scan"));
   els.backendRefreshBtn.addEventListener("click", refreshBackendStatus);
+  els.logoutBtn.addEventListener("click", logout);
 
   document.querySelectorAll(".rail-button").forEach((button) => {
     button.addEventListener("click", () => {
@@ -376,6 +378,11 @@ function bindEvents() {
       if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
+}
+
+async function logout() {
+  await backendRequest("/api/auth/logout", { method: "POST", body: "{}" }).catch(() => null);
+  window.location.href = "/login.html";
 }
 
 async function loadMarketData() {

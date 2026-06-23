@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Entrar - Binance Crypto Radar</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --bg: #f5f7f8;
+        --ink: #111315;
+        --muted: #66727f;
+        --line: #d8dee4;
+        --dark: #151719;
+        --blue: #2563eb;
+        --red: #c73b3b;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background:
+          linear-gradient(90deg, rgba(21, 23, 25, 0.04) 1px, transparent 1px) 0 0 / 48px 48px,
+          linear-gradient(180deg, #f8fafb 0%, var(--bg) 100%);
+        color: var(--ink);
+      }
+
+      main {
+        width: min(420px, 100%);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: 0 16px 40px rgba(17, 19, 21, 0.08);
+        padding: 24px;
+      }
+
+      .brand {
+        width: 44px;
+        height: 44px;
+        display: grid;
+        place-items: center;
+        background: #f0b90b;
+        color: #111315;
+        font-weight: 900;
+        border-radius: 8px;
+        margin-bottom: 18px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 2rem;
+        line-height: 1;
+        letter-spacing: 0;
+      }
+
+      p {
+        margin: 0 0 20px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
+      form {
+        display: grid;
+        gap: 14px;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 0.82rem;
+        font-weight: 800;
+      }
+
+      input {
+        width: 100%;
+        min-height: 46px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0 12px;
+        font: inherit;
+        color: var(--ink);
+        background: #ffffff;
+      }
+
+      button {
+        min-height: 46px;
+        border: 0;
+        border-radius: 8px;
+        background: var(--blue);
+        color: #ffffff;
+        font: inherit;
+        font-weight: 900;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
+      .error {
+        min-height: 20px;
+        margin-top: 12px;
+        color: var(--red);
+        font-weight: 800;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">B</div>
+      <h1>Acceso privado</h1>
+      <p>Entra para ver el panel y controlar el bot conectado a Binance.</p>
+
+      <form id="loginForm">
+        <label>
+          Usuario
+          <input id="username" name="username" autocomplete="username" required />
+        </label>
+        <label>
+          Contrasena
+          <input id="password" name="password" type="password" autocomplete="current-password" required />
+        </label>
+        <button id="loginButton" type="submit">Entrar</button>
+      </form>
+      <div id="errorText" class="error" aria-live="polite"></div>
+    </main>
+
+    <script>
+      const form = document.querySelector("#loginForm");
+      const button = document.querySelector("#loginButton");
+      const errorText = document.querySelector("#errorText");
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        errorText.textContent = "";
+        button.disabled = true;
+        try {
+          const response = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              username: form.username.value,
+              password: form.password.value,
+            }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || data.ok === false) throw new Error(data.error || "No se pudo iniciar sesion.");
+          window.location.href = "/";
+        } catch (error) {
+          errorText.textContent = error.message;
+        } finally {
+          button.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

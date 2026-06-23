@@ -45,6 +45,9 @@ const CONFIG = {
   binanceBaseUrl: stripTrailingSlash(process.env.BINANCE_BASE_URL || "https://api.binance.com"),
   apiKey: process.env.BINANCE_API_KEY || "",
   apiSecret: process.env.BINANCE_API_SECRET || "",
+  appUsername: process.env.APP_USERNAME || "",
+  appPassword: process.env.APP_PASSWORD || "",
+  appSessionSecret: process.env.APP_SESSION_SECRET || "",
   liveTrading: envBool("BOT_LIVE_TRADING", false),
   autoStart: envBool("BOT_AUTO_START", false),
   maxCapitalUsdt: envNum("BOT_MAX_CAPITAL_USDT", 50),
@@ -77,6 +80,9 @@ const MIME_TYPES = {
   ".ico": "image/x-icon",
 };
 
+const AUTH_COOKIE = "bot_cripto_session";
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+
 const marketCache = {
   exchangeInfo: null,
   exchangeInfoAt: 0,
@@ -107,6 +113,15 @@ const server = http.createServer(async (req, res) => {
     }
 
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    if (!isPublicRoute(url) && !isAuthenticated(req)) {
+      if (url.pathname.startsWith("/api/")) {
+        sendJson(res, 401, { ok: false, error: "Authentication required." });
+      } else {
+        redirect(res, "/login.html");
+      }
+      return;
+    }
+
     if (url.pathname.startsWith("/api/")) {
       await routeApi(req, res, url);
       return;
@@ -124,6 +139,32 @@ server.listen(CONFIG.port, () => {
 });
 
 async function routeApi(req, res, url) {
+  if (url.pathname === "/api/auth/login" && req.method === "POST") {
+    if (!authConfigured()) {
+      sendJson(res, 503, { ok: false, error: "Auth is not configured. Set APP_USERNAME, APP_PASSWORD and APP_SESSION_SECRET." });
+      return;
+    }
+    const body = await readJsonBody(req);
+    if (safeEqual(body.username || "", CONFIG.appUsername) && safeEqual(body.password || "", CONFIG.appPassword)) {
+      setSessionCookie(res, createSessionToken(CONFIG.appUsername));
+      sendJson(res, 200, { ok: true, username: CONFIG.appUsername });
+      return;
+    }
+    sendJson(res, 401, { ok: false, error: "Usuario o contrasena incorrectos." });
+    return;
+  }
+
+  if (url.pathname === "/api/auth/logout" && req.method === "POST") {
+    clearSessionCookie(res);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === "/api/auth/me" && req.method === "GET") {
+    sendJson(res, 200, { ok: true, username: sessionUser(req) });
+    return;
+  }
+
   if (url.pathname === "/api/health" && req.method === "GET") {
     sendJson(res, 200, {
       ok: true,
@@ -131,6 +172,7 @@ async function routeApi(req, res, url) {
       binanceConfigured: hasKeys(),
       liveTrading: CONFIG.liveTrading,
       botEnabled: botState.enabled,
+      authConfigured: authConfigured(),
     });
     return;
   }
@@ -233,6 +275,88 @@ function sendJson(res, status, payload) {
     return;
   }
   res.end(JSON.stringify(payload));
+}
+
+function redirect(res, location) {
+  res.writeHead(302, {
+    Location: location,
+    "Cache-Control": "no-store",
+  });
+  res.end();
+}
+
+function isPublicRoute(url) {
+  return (
+    url.pathname === "/login.html" ||
+    url.pathname === "/favicon.ico" ||
+    url.pathname === "/api/health" ||
+    url.pathname === "/api/auth/login" ||
+    url.pathname === "/api/auth/logout"
+  );
+}
+
+function authConfigured() {
+  return Boolean(CONFIG.appUsername && CONFIG.appPassword && CONFIG.appSessionSecret);
+}
+
+function isAuthenticated(req) {
+  return Boolean(sessionUser(req));
+}
+
+function sessionUser(req) {
+  if (!authConfigured()) return null;
+  const token = parseCookies(req.headers.cookie || "")[AUTH_COOKIE];
+  if (!token) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [encodedUser, expiresText, signature] = parts;
+  const payload = `${encodedUser}.${expiresText}`;
+  const expected = sign(payload);
+  if (!safeEqual(signature, expected)) return null;
+  const expires = Number(expiresText);
+  if (!Number.isFinite(expires) || expires < Date.now()) return null;
+  const username = Buffer.from(encodedUser, "base64url").toString("utf8");
+  return username === CONFIG.appUsername ? username : null;
+}
+
+function createSessionToken(username) {
+  const encodedUser = Buffer.from(username, "utf8").toString("base64url");
+  const expires = String(Date.now() + SESSION_TTL_MS);
+  const payload = `${encodedUser}.${expires}`;
+  return `${payload}.${sign(payload)}`;
+}
+
+function setSessionCookie(res, token) {
+  res.setHeader("Set-Cookie", `${AUTH_COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`);
+}
+
+function clearSessionCookie(res) {
+  res.setHeader("Set-Cookie", `${AUTH_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
+}
+
+function sign(payload) {
+  return crypto.createHmac("sha256", CONFIG.appSessionSecret).update(payload).digest("base64url");
+}
+
+function parseCookies(cookieHeader) {
+  return Object.fromEntries(
+    cookieHeader
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const index = part.indexOf("=");
+        if (index === -1) return [part, ""];
+        return [part.slice(0, index), decodeURIComponent(part.slice(index + 1))];
+      })
+  );
+}
+
+function safeEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left));
+  const rightBuffer = Buffer.from(String(right));
+  if (leftBuffer.length !== rightBuffer.length) return false;
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
 }
 
 async function readJsonBody(req) {

@@ -166,6 +166,11 @@ h2 {
   gap: 8px;
 }
 
+.top-logout {
+  min-height: 34px;
+  padding: 0 10px;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;

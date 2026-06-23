@@ -15,6 +15,9 @@ Abre `http://127.0.0.1:8080`.
 Copia `.env.example` a `.env` si vas a probar localmente. No subas `.env` a GitHub.
 
 ```env
+APP_USERNAME=gaboLauraV123
+APP_PASSWORD=
+APP_SESSION_SECRET=
 BINANCE_API_KEY=
 BINANCE_API_SECRET=
 BOT_LIVE_TRADING=false
@@ -32,6 +35,8 @@ BOT_DAILY_MAX_LOSS_USDT=2.5
 - Port field: `8080`.
 - Environment variables: copia las variables de `.env.example`.
 - No agregues `PORT`; Seenode indica configurar el puerto en el campo de Port.
+- `APP_PASSWORD` debe ser tu contrasena privada de acceso a la web.
+- `APP_SESSION_SECRET` debe ser una cadena larga aleatoria para firmar sesiones.
 
 ## Alcance del bot
 
@@ -44,5 +49,7 @@ BOT_DAILY_MAX_LOSS_USDT=2.5
 - Muestra USDT/BOB usando Binance P2P y fallback `bo.dolarapi.com`.
 
 ## Seguridad
+
+La web requiere login con `APP_USERNAME` y `APP_PASSWORD`. Las claves de Binance se usan solo en el backend y nunca deben ir en `app.js`, `index.html` ni GitHub.
 
 Las senales no son asesoria financiera. El mercado cripto puede perder capital rapidamente. Prueba primero con `BOT_LIVE_TRADING=false` o Binance Spot Testnet antes de operar real.

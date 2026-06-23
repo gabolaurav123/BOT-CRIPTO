@@ -33,7 +33,14 @@ BOT_UNIVERSE_MODE=dynamic
 BOT_ALLOWED_SYMBOLS=ALL
 BOT_ALLOW_HIGH_RISK=true
 BOT_HIGH_RISK_MAX_TRADE_USDT=6
-BOT_MAX_HIGH_RISK_OPEN_POSITIONS=2
+BOT_MAX_HIGH_RISK_OPEN_POSITIONS=1
+BOT_HIGH_RISK_MAX_24H_CHANGE_PCT=18
+BOT_HIGH_RISK_MAX_SPREAD_PCT=0.2
+BOT_HIGH_RISK_MIN_DEPTH_BIAS=0.08
+BOT_HIGH_RISK_RSI_MIN=48
+BOT_HIGH_RISK_RSI_MAX=64
+BOT_HIGH_RISK_MAX_POSITION_LOSS_PCT=0.8
+BOT_MAX_POSITION_LOSS_PCT=1.4
 ```
 
 ## Deploy en Seenode
@@ -74,6 +81,8 @@ Si la IP cambia despues de reiniciar o redeployar Seenode, Binance puede rechaza
 - En `BOT_UNIVERSE_MODE=dynamic` analiza muchas mas criptos spot USDT de Binance.
 - Si tu hosting no permite variables vacias, usa `BOT_ALLOWED_SYMBOLS=ALL`.
 - Las entradas de alto riesgo usan `BOT_HIGH_RISK_MAX_TRADE_USDT` y filtros mas estrictos.
+- Las monedas volatiles se descartan si tienen spread alto, RSI estirado, demasiada subida en 24h o poca presion compradora en el libro.
+- `BOT_HIGH_RISK_MAX_POSITION_LOSS_PCT` corta posiciones volatiles antes de que sigan cayendo.
 
 ## Seguridad
 

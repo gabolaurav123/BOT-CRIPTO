@@ -53,7 +53,7 @@ const CONFIG = {
   liveTrading: envBool("BOT_LIVE_TRADING", false),
   autoStart: envBool("BOT_AUTO_START", false),
   maxCapitalUsdt: envNum("BOT_MAX_CAPITAL_USDT", 50),
-  maxTradeUsdt: envNum("BOT_MAX_TRADE_USDT", 5),
+  maxTradeUsdt: envNum("BOT_MAX_TRADE_USDT", 6),
   maxOpenPositions: Math.max(1, envNum("BOT_MAX_OPEN_POSITIONS", 4)),
   dailyProfitTargetUsdt: envNum("BOT_DAILY_PROFIT_TARGET_USDT", 10),
   dailyMaxLossUsdt: envNum("BOT_DAILY_MAX_LOSS_USDT", 2.5),
@@ -67,13 +67,23 @@ const CONFIG = {
   scanUniverseLimit: Math.max(30, envNum("BOT_SCAN_UNIVERSE_LIMIT", 140)),
   minQuoteVolumeUsdt: envNum("BOT_MIN_QUOTE_VOLUME_USDT", 2500000),
   max24hChangePct: envNum("BOT_MAX_24H_CHANGE_PCT", 35),
+  maxSpreadPct: envNum("BOT_MAX_SPREAD_PCT", 0.35),
+  maxPositionLossPct: envNum("BOT_MAX_POSITION_LOSS_PCT", 1.4),
+  exitWeakScore: envNum("BOT_EXIT_WEAK_SCORE", 62),
   takerFeeRate: envNum("BOT_TAKER_FEE_RATE", 0.001),
   stopLossPct: envNum("BOT_STOP_LOSS_PCT", 1.8),
   takeProfitPct: envNum("BOT_TAKE_PROFIT_PCT", 1.2),
   trailingStopPct: envNum("BOT_TRAILING_STOP_PCT", 0.7),
   allowHighRisk: envBool("BOT_ALLOW_HIGH_RISK", false),
-  highRiskMaxTradeUsdt: envNum("BOT_HIGH_RISK_MAX_TRADE_USDT", 5),
-  maxHighRiskOpenPositions: Math.max(0, envNum("BOT_MAX_HIGH_RISK_OPEN_POSITIONS", 2)),
+  highRiskMaxTradeUsdt: envNum("BOT_HIGH_RISK_MAX_TRADE_USDT", 6),
+  maxHighRiskOpenPositions: Math.max(0, envNum("BOT_MAX_HIGH_RISK_OPEN_POSITIONS", 1)),
+  highRiskMax24hChangePct: envNum("BOT_HIGH_RISK_MAX_24H_CHANGE_PCT", 18),
+  highRiskMaxSpreadPct: envNum("BOT_HIGH_RISK_MAX_SPREAD_PCT", 0.2),
+  highRiskMinDepthBias: envNum("BOT_HIGH_RISK_MIN_DEPTH_BIAS", 0.08),
+  highRiskRsiMin: envNum("BOT_HIGH_RISK_RSI_MIN", 48),
+  highRiskRsiMax: envNum("BOT_HIGH_RISK_RSI_MAX", 64),
+  highRiskMaxPositionLossPct: envNum("BOT_HIGH_RISK_MAX_POSITION_LOSS_PCT", 0.8),
+  highRiskExitWeakScore: envNum("BOT_HIGH_RISK_EXIT_WEAK_SCORE", 72),
   highRiskStopLossPct: envNum("BOT_HIGH_RISK_STOP_LOSS_PCT", 1.2),
   highRiskTakeProfitPct: envNum("BOT_HIGH_RISK_TAKE_PROFIT_PCT", 1.8),
   universeMode: UNIVERSE_MODE,
@@ -504,9 +514,12 @@ function canEnterMarket(market, openPositions) {
   if (market.score < requiredScore) return false;
   if (highRisk && !CONFIG.allowHighRisk) return false;
   if (market.projection4h < (highRisk ? 0.55 : 0.25)) return false;
-  if (market.rsi > (highRisk ? 68 : 72) || market.rsi < (highRisk ? 45 : 42)) return false;
+  if (market.rsi > (highRisk ? CONFIG.highRiskRsiMax : 72) || market.rsi < (highRisk ? CONFIG.highRiskRsiMin : 42)) return false;
   if (market.depthBias < -0.08) return false;
-  if (highRisk && market.depthBias <= 0) return false;
+  if (market.spreadPct != null && market.spreadPct > (highRisk ? CONFIG.highRiskMaxSpreadPct : CONFIG.maxSpreadPct)) return false;
+  if (highRisk && market.depthBias < CONFIG.highRiskMinDepthBias) return false;
+  if (highRisk && market.changePct > CONFIG.highRiskMax24hChangePct) return false;
+  if (highRisk && market.smaFast && market.smaSlow && market.smaFast <= market.smaSlow) return false;
   if (market.volumeQuote < CONFIG.minQuoteVolumeUsdt) return false;
   if (market.changePct > CONFIG.max24hChangePct) return false;
   if (openPositions.some((position) => position.symbol === market.symbol)) return false;
@@ -592,12 +605,17 @@ async function manageOpenPositions(marketsBySymbol) {
     position.peakPrice = Math.max(position.peakPrice || position.entryPrice, market.price);
     const trailingStop = position.peakPrice * (1 - CONFIG.trailingStopPct / 100);
     const pnl = estimatePositionPnl(position, market.price);
+    const highRisk = position.risk === "alto";
+    const maxLossPct = highRisk ? CONFIG.highRiskMaxPositionLossPct : CONFIG.maxPositionLossPct;
+    const weakScore = highRisk ? CONFIG.highRiskExitWeakScore : CONFIG.exitWeakScore;
     let reason = "";
 
     if (market.price <= position.stop) reason = "stop-loss";
+    else if (pnl.netPct <= -Math.abs(maxLossPct)) reason = "max-loss-position";
     else if (position.peakPrice > position.entryPrice * 1.008 && market.price <= trailingStop) reason = "trailing-stop";
     else if (market.price >= position.target) reason = "take-profit";
-    else if (market.score < 50 && pnl.netUsdt <= 0) reason = "senal-debil";
+    else if (market.score < weakScore && pnl.netUsdt <= 0) reason = "senal-debil";
+    else if ((market.projection4h ?? 0) < -0.2 && market.depthBias < -0.08 && pnl.netUsdt <= 0) reason = "reversion-bajista";
     else if (botState.dailyRealizedPnl + pnl.netUsdt <= -Math.abs(CONFIG.dailyMaxLossUsdt)) reason = "proteccion-perdida-diaria";
 
     if (reason) await closePosition(position, reason, market.price);
@@ -783,7 +801,7 @@ async function scanMarket(options = {}) {
       const klines = await getKlines(market.symbol, "1h", 120).catch(() => []);
       applyTechnicalIndicators(market, klines);
       if (options.includeDepth) {
-        market.depthBias = await getOrderBookBias(market.symbol).catch(() => 0);
+        Object.assign(market, await getOrderBookMetrics(market.symbol).catch(() => ({ depthBias: 0, spreadPct: null })));
       }
       recalculateMarket(market);
     }
@@ -798,7 +816,7 @@ async function getMarketForSymbol(symbol) {
   const market = buildMarketFromTicker(ticker, info.raw);
   const klines = await getKlines(symbol, "1h", 120).catch(() => []);
   applyTechnicalIndicators(market, klines);
-  market.depthBias = await getOrderBookBias(symbol).catch(() => 0);
+  Object.assign(market, await getOrderBookMetrics(symbol).catch(() => ({ depthBias: 0, spreadPct: null })));
   recalculateMarket(market);
   return market;
 }
@@ -822,6 +840,7 @@ function buildMarketFromTicker(ticker, info = {}) {
     projection4h: null,
     volatility: null,
     depthBias: 0,
+    spreadPct: null,
     score: 0,
     signal: "watch",
     risk: "moderado",
@@ -851,8 +870,9 @@ function recalculateMarket(market) {
   const liquidityScore = clamp(Math.log10(Math.max(market.volumeQuote, 1)) * 5, 0, 38);
   const trendScore = clamp(trendBias * 3, -18, 18);
   const depthScore = clamp(market.depthBias * 35, -12, 12);
+  const spreadPenalty = market.spreadPct == null ? 0 : market.spreadPct > 0.5 ? 14 : market.spreadPct > 0.25 ? 8 : market.spreadPct > 0.12 ? 3 : 0;
   const riskPenalty = dayRange > 22 ? 18 : dayRange > 14 ? 10 : dayRange < 2 ? 4 : 0;
-  market.score = Math.round(clamp(34 + liquidityScore + momentumScore + rsiScore + trendScore + projectionScore + depthScore - riskPenalty, 0, 100));
+  market.score = Math.round(clamp(34 + liquidityScore + momentumScore + rsiScore + trendScore + projectionScore + depthScore - riskPenalty - spreadPenalty, 0, 100));
   market.risk = classifyRisk(market, dayRange);
   const canSignalBuy = market.risk === "alto" ? CONFIG.allowHighRisk && market.score >= CONFIG.highRiskMinScore : market.score >= CONFIG.minScore;
   market.signal = canSignalBuy ? "buy" : market.score >= 60 ? "watch" : "avoid";
@@ -873,15 +893,22 @@ function buildReason(market) {
   if (market.rsi != null) parts.push(`RSI ${market.rsi.toFixed(0)}`);
   parts.push(`24h ${market.changePct.toFixed(2)}%`);
   if (market.depthBias) parts.push(`libro ${(market.depthBias * 100).toFixed(1)}%`);
+  if (market.spreadPct != null) parts.push(`spread ${market.spreadPct.toFixed(3)}%`);
   return parts.join(" - ");
 }
 
-async function getOrderBookBias(symbol) {
+async function getOrderBookMetrics(symbol) {
   const depth = await binancePublicRequest(`/api/v3/depth?symbol=${encodeURIComponent(symbol)}&limit=50`);
   const bidNotional = depth.bids.slice(0, 20).reduce((sum, [price, qty]) => sum + Number(price) * Number(qty), 0);
   const askNotional = depth.asks.slice(0, 20).reduce((sum, [price, qty]) => sum + Number(price) * Number(qty), 0);
   const total = bidNotional + askNotional;
-  return total ? (bidNotional - askNotional) / total : 0;
+  const bestBid = Number(depth.bids[0]?.[0] || 0);
+  const bestAsk = Number(depth.asks[0]?.[0] || 0);
+  const mid = bestBid && bestAsk ? (bestBid + bestAsk) / 2 : 0;
+  return {
+    depthBias: total ? (bidNotional - askNotional) / total : 0,
+    spreadPct: mid ? ((bestAsk - bestBid) / mid) * 100 : null,
+  };
 }
 
 async function getAccountSummary() {
@@ -1177,6 +1204,9 @@ function safeConfig() {
     scanUniverseLimit: CONFIG.scanUniverseLimit,
     minQuoteVolumeUsdt: CONFIG.minQuoteVolumeUsdt,
     max24hChangePct: CONFIG.max24hChangePct,
+    maxSpreadPct: CONFIG.maxSpreadPct,
+    maxPositionLossPct: CONFIG.maxPositionLossPct,
+    exitWeakScore: CONFIG.exitWeakScore,
     takerFeeRateFallback: CONFIG.takerFeeRate,
     stopLossPct: CONFIG.stopLossPct,
     takeProfitPct: CONFIG.takeProfitPct,
@@ -1184,6 +1214,13 @@ function safeConfig() {
     allowHighRisk: CONFIG.allowHighRisk,
     highRiskMaxTradeUsdt: CONFIG.highRiskMaxTradeUsdt,
     maxHighRiskOpenPositions: CONFIG.maxHighRiskOpenPositions,
+    highRiskMax24hChangePct: CONFIG.highRiskMax24hChangePct,
+    highRiskMaxSpreadPct: CONFIG.highRiskMaxSpreadPct,
+    highRiskMinDepthBias: CONFIG.highRiskMinDepthBias,
+    highRiskRsiMin: CONFIG.highRiskRsiMin,
+    highRiskRsiMax: CONFIG.highRiskRsiMax,
+    highRiskMaxPositionLossPct: CONFIG.highRiskMaxPositionLossPct,
+    highRiskExitWeakScore: CONFIG.highRiskExitWeakScore,
     highRiskStopLossPct: CONFIG.highRiskStopLossPct,
     highRiskTakeProfitPct: CONFIG.highRiskTakeProfitPct,
     universeMode: CONFIG.universeMode,
